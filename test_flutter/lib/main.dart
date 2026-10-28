@@ -48,7 +48,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp> {
         ),
         useMaterial3: true,
       ),
-      // The home page has its own state for the selected navigation tab.
+      // The home page owns the selected destination and its page content.
       home: CrmHomePage(
         isDarkMode: _themeMode == ThemeMode.dark,
         onToggleTheme: _toggleTheme,
@@ -59,8 +59,8 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp> {
 
 /// Describes one destination and the centered text shown when it is selected.
 ///
-/// The navigation bar and the page body both read from the same tab list,
-/// so a tab's label and its verification text stay paired by list index.
+/// Both the navigation rail and active page use the same tab list. This keeps
+/// each label, icon, and page message paired at the same list index.
 class _AppTab {
   const _AppTab({
     required this.label,
@@ -75,7 +75,7 @@ class _AppTab {
   final String bodyText;
 }
 
-/// Main CRM shell containing the app bar, active page, and bottom tab bar.
+/// Main CRM shell containing the app bar, left navigation rail, and page body.
 class CrmHomePage extends StatefulWidget {
   const CrmHomePage({
     required this.isDarkMode,
@@ -91,40 +91,52 @@ class CrmHomePage extends StatefulWidget {
 }
 
 class _CrmHomePageState extends State<CrmHomePage> {
-  // This immutable list defines the four routes in display order. The selected
-  // index is used for the navigation destination and the matching body text.
+  // This immutable list defines the six destinations in display order.
+  // The selected index identifies the active destination and body message.
   static const List<_AppTab> _tabs = [
     _AppTab(
-      label: 'Homepage',
+      label: 'Home',
       icon: Icons.home_outlined,
       selectedIcon: Icons.home,
       bodyText: 'Welcome back user',
     ),
     _AppTab(
-      label: 'Customer lookup',
-      icon: Icons.person_search_outlined,
-      selectedIcon: Icons.person_search,
-      bodyText: 'Customer lookup',
+      label: 'Contacts',
+      icon: Icons.people_outline,
+      selectedIcon: Icons.people,
+      bodyText: 'Contacts',
     ),
     _AppTab(
-      label: 'Add customer',
-      icon: Icons.person_add_alt_1_outlined,
-      selectedIcon: Icons.person_add_alt_1,
-      bodyText: 'Add customer',
+      label: 'Organizations',
+      icon: Icons.business_outlined,
+      selectedIcon: Icons.business,
+      bodyText: 'Organizations',
     ),
     _AppTab(
-      label: 'Statistics',
-      icon: Icons.bar_chart_outlined,
-      selectedIcon: Icons.bar_chart,
-      bodyText: 'Statistics',
+      label: 'Map',
+      icon: Icons.map_outlined,
+      selectedIcon: Icons.map,
+      bodyText: 'Map',
+    ),
+    _AppTab(
+      label: 'Search and Reporting',
+      icon: Icons.manage_search,
+      selectedIcon: Icons.query_stats,
+      bodyText: 'Search and Reporting',
+    ),
+    _AppTab(
+      label: 'Archive',
+      icon: Icons.archive_outlined,
+      selectedIcon: Icons.archive,
+      bodyText: 'Archive',
     ),
   ];
 
-  // NavigationBar reports the tapped destination's index. Starting at zero
-  // makes Homepage the initial screen when the app opens.
+  // NavigationRail reports the tapped destination's index. Starting at zero
+  // makes Home the first page shown when the app opens.
   int _selectedTabIndex = 0;
 
-  /// Updates the one source of truth for tab selection and refreshes the UI.
+  /// Updates the selected destination and asks Flutter to rebuild this page.
   void _selectTab(int index) {
     setState(() {
       _selectedTabIndex = index;
@@ -133,8 +145,8 @@ class _CrmHomePageState extends State<CrmHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Looking up both title and body from the same tab ensures the app bar and
-    // centered verification text always correspond to the selected tab.
+    // A single selected-tab lookup keeps the app bar title and page body in
+    // sync with the selected navigation destination.
     final selectedTab = _tabs[_selectedTabIndex];
     final colors = Theme.of(context).colorScheme;
 
@@ -142,7 +154,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
       appBar: AppBar(
         title: Text(selectedTab.label),
         actions: [
-          // The theme action is kept available regardless of the active tab.
+          // The theme action remains available from every destination.
           IconButton(
             tooltip: widget.isDarkMode
                 ? 'Switch to light mode'
@@ -155,36 +167,45 @@ class _CrmHomePageState extends State<CrmHomePage> {
           const SizedBox(width: 8),
         ],
       ),
-      // Each destination displays its required exact text, centered in the
-      // available content area to make routing easy to verify.
+      // The row places navigation on the left and the active page beside it.
       body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              selectedTab.bodyText,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                    color: colors.primary,
-                    fontWeight: FontWeight.bold,
+        child: Row(
+          children: [
+            // Extended mode shows labels beside icons, so all six destinations
+            // remain readable, including the longer Search and Reporting tab.
+            NavigationRail(
+              extended: true,
+              selectedIndex: _selectedTabIndex,
+              onDestinationSelected: _selectTab,
+              destinations: [
+                for (final tab in _tabs)
+                  NavigationRailDestination(
+                    icon: Icon(tab.icon),
+                    selectedIcon: Icon(tab.selectedIcon),
+                    label: Text(tab.label),
                   ),
+              ],
             ),
-          ),
+            const VerticalDivider(width: 1, thickness: 1),
+            Expanded(
+              // The selected tab's message stays centered in the space to the
+              // right of the rail, independent of the sidebar's width.
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    selectedTab.bodyText,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                          color: colors.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
-      ),
-      // Selecting a destination calls _selectTab; setState rebuilds the page
-      // using the matching item in _tabs above.
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedTabIndex,
-        onDestinationSelected: _selectTab,
-        destinations: [
-          for (final tab in _tabs)
-            NavigationDestination(
-              icon: Icon(tab.icon),
-              selectedIcon: Icon(tab.selectedIcon),
-              label: tab.label,
-            ),
-        ],
       ),
     );
   }

@@ -3,3 +3,7 @@ __pycache__/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
+.vscode/settings.json
+test_flutter/windows/flutter/generated_plugin_registrant.cc
+test_flutter/windows/flutter/generated_plugin_registrant.h
+test_flutter/windows/flutter/generated_plugins.cmake
