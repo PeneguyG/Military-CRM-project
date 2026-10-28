@@ -1,5 +1,13 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
+
+# Keep MSBuild tracking and object paths below legacy Windows path limits when
+# the checkout is nested deeply. Older CMake versions retain their defaults.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.2")
+  set(CMAKE_INTERMEDIATE_DIR_STRATEGY "SHORT" CACHE STRING
+    "Use short intermediate paths for native Windows builds")
+endif()
+
 project(greeting_app LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
