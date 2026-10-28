@@ -1,0 +1,4 @@
+.vscode/settings.json
+test_flutter/windows/flutter/generated_plugin_registrant.cc
+test_flutter/windows/flutter/generated_plugin_registrant.h
+test_flutter/windows/flutter/generated_plugins.cmake
