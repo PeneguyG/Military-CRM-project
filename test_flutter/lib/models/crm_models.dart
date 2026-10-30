@@ -174,6 +174,7 @@ class InteractionLog {
     required this.type,
     required this.summary,
     this.followUpDate,
+    this.followUpCompleted = false,
   });
   static const types = ['Call', 'Text', 'In-Person', 'Email'];
   final int? id, organizationId;
@@ -181,6 +182,7 @@ class InteractionLog {
   final DateTime date;
   final String type, summary;
   final DateTime? followUpDate;
+  final bool followUpCompleted;
   Map<String, Object?> toMap() => {
     'id': id,
     'contact_id': contactId,
@@ -189,6 +191,7 @@ class InteractionLog {
     'type': type,
     'summary': summary,
     'follow_up_date': followUpDate?.toIso8601String(),
+    'follow_up_completed': followUpCompleted ? 1 : 0,
   };
   factory InteractionLog.fromMap(Map<String, Object?> m) => InteractionLog(
     id: m['id'] as int?,
@@ -200,6 +203,7 @@ class InteractionLog {
     followUpDate: m['follow_up_date'] == null
         ? null
         : DateTime.parse(m['follow_up_date'] as String),
+    followUpCompleted: m['follow_up_completed'] == 1,
   );
   InteractionLog copyWith({
     Object? id = _unset,
@@ -209,6 +213,7 @@ class InteractionLog {
     String? type,
     String? summary,
     Object? followUpDate = _unset,
+    bool? followUpCompleted,
   }) => InteractionLog(
     id: identical(id, _unset) ? this.id : id as int?,
     contactId: contactId ?? this.contactId,
@@ -221,5 +226,6 @@ class InteractionLog {
     followUpDate: identical(followUpDate, _unset)
         ? this.followUpDate
         : followUpDate as DateTime?,
+    followUpCompleted: followUpCompleted ?? this.followUpCompleted,
   );
 }

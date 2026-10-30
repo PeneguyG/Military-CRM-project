@@ -8,6 +8,8 @@ import 'data/crm_database.dart';
 import 'pages/crm_widgets.dart';
 import 'pages/contacts_page.dart';
 import 'pages/organizations_page.dart';
+import 'pages/home_page.dart';
+import 'models/crm_models.dart';
 
 void main() => runApp(const MilitaryCrmApp());
 
@@ -138,6 +140,20 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
   }
 }
 
+/// One entry in the CRM navigation system, including its regular and selected icon.
+class _CrmDestination {
+  const _CrmDestination({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+  });
+
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+}
+
+/// Main CRM shell that coordinates navigation, existing record pages, and Home.
 class CrmHomePage extends StatefulWidget {
   const CrmHomePage({
     super.key,
@@ -147,25 +163,89 @@ class CrmHomePage extends StatefulWidget {
     required this.automaticTheme,
     required this.onAutomaticTheme,
   });
-  final bool isDarkMode, automaticTheme;
+
+  final bool isDarkMode;
+  final bool automaticTheme;
   final CrmStore store;
-  final VoidCallback onToggleTheme, onAutomaticTheme;
+  final VoidCallback onToggleTheme;
+  final VoidCallback onAutomaticTheme;
+
   @override
   State<CrmHomePage> createState() => _CrmHomePageState();
 }
 
 class _CrmHomePageState extends State<CrmHomePage> {
-  int _tab = 0, _contactNavigation = 0;
+  // These ordered destinations are the shared source for the rail, app-bar
+  // title, Home shortcuts, and IndexedStack page routing.
+  static const List<_CrmDestination> _destinations = [
+    _CrmDestination(
+      label: 'Home',
+      icon: Icons.home_outlined,
+      selectedIcon: Icons.home,
+    ),
+    _CrmDestination(
+      label: 'Contacts',
+      icon: Icons.people_outline,
+      selectedIcon: Icons.people,
+    ),
+    _CrmDestination(
+      label: 'Organizations',
+      icon: Icons.business_outlined,
+      selectedIcon: Icons.business,
+    ),
+    _CrmDestination(
+      label: 'Map',
+      icon: Icons.map_outlined,
+      selectedIcon: Icons.map,
+    ),
+    _CrmDestination(
+      label: 'Search and Reporting',
+      icon: Icons.manage_search,
+      selectedIcon: Icons.query_stats,
+    ),
+    _CrmDestination(
+      label: 'Archive',
+      icon: Icons.archive_outlined,
+      selectedIcon: Icons.archive,
+    ),
+  ];
+
+  // The active index is the single navigation state used by every route
+  // control, so a rail selection and a Home shortcut open the same page.
+  int _tab = 0;
+
+  // ContactsPage is recreated when a contact is opened from another section.
+  // This lets it select and show the requested contact even if it was already
+  // mounted in the IndexedStack.
+  int _contactNavigation = 0;
   int? _contactId;
+
   CrmStore get _store => widget.store;
+
+  /// Selects a destination from either the rail or a Home shortcut.
+  void _selectTab(int index) {
+    setState(() => _tab = index);
+  }
+
+  /// Opens a contact in the existing Contacts page.
+  void _openContact(Contact contact) {
+    setState(() {
+      _contactId = contact.id;
+      _contactNavigation++;
+      _tab = 1; // Contacts follows Home in the destination list.
+    });
+  }
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final wide = constraints.maxWidth >= 700;
+      // The rail expands to readable labels on wider desktop windows. On
+      // narrower windows it stays compact and shows the active label only.
+      final extendedRail = constraints.maxWidth >= 1000;
+
       return Scaffold(
         appBar: AppBar(
-          title: Text(_tab == 0 ? 'Contacts' : 'Organizations'),
+          title: Text(_destinations[_tab].label),
           actions: [
             IconButton(
               tooltip: widget.isDarkMode
@@ -188,6 +268,8 @@ class _CrmHomePageState extends State<CrmHomePage> {
         body: SafeArea(
           child: Column(
             children: [
+              // This banner continues to report whether records are saved in
+              // SQLite or supplied by an in-memory test store.
               MaterialBanner(
                 content: Text(
                   _store.databasePath == null
@@ -221,30 +303,52 @@ class _CrmHomePageState extends State<CrmHomePage> {
                 ],
               ),
               Expanded(
+                // Keep navigation on the left for desktop and compact windows.
+                // Each indexed child retains its own page state while another
+                // tab is selected.
                 child: Row(
                   children: [
-                    if (wide) ...[
-                      NavigationRail(
-                        selectedIndex: _tab,
-                        labelType: NavigationRailLabelType.all,
-                        onDestinationSelected: (v) => setState(() => _tab = v),
-                        destinations: const [
+                    NavigationRail(
+                      extended: extendedRail,
+                      labelType: extendedRail
+                          ? null
+                          : NavigationRailLabelType.selected,
+                      groupAlignment: -1,
+                      selectedIndex: _tab,
+                      onDestinationSelected: _selectTab,
+                      destinations: [
+                        for (final destination in _destinations)
                           NavigationRailDestination(
-                            icon: Icon(Icons.people_outline),
-                            label: Text('Contacts'),
+                            icon: Icon(destination.icon),
+                            selectedIcon: Icon(destination.selectedIcon),
+                            label: Text(destination.label),
                           ),
-                          NavigationRailDestination(
-                            icon: Icon(Icons.business_outlined),
-                            label: Text('Organizations'),
-                          ),
-                        ],
-                      ),
-                      const VerticalDivider(width: 1),
-                    ],
+                      ],
+                    ),
+                    const VerticalDivider(width: 1),
                     Expanded(
                       child: IndexedStack(
                         index: _tab,
                         children: [
+                          HomePage(
+                            store: _store,
+                            shortcuts: [
+                              // Build one Home shortcut for every destination
+                              // after Home, using the same navigation indices.
+                              for (
+                                var index = 1;
+                                index < _destinations.length;
+                                index++
+                              )
+                                HomeShortcut(
+                                  tabIndex: index,
+                                  label: _destinations[index].label,
+                                  icon: _destinations[index].icon,
+                                ),
+                            ],
+                            onSelectTab: _selectTab,
+                            onOpenContact: _openContact,
+                          ),
                           ContactsPage(
                             key: ValueKey(_contactNavigation),
                             store: _store,
@@ -252,11 +356,19 @@ class _CrmHomePageState extends State<CrmHomePage> {
                           ),
                           OrganizationsPage(
                             store: _store,
-                            onSelectContact: (c) => setState(() {
-                              _contactId = c.id;
-                              _contactNavigation++;
-                              _tab = 0;
-                            }),
+                            onSelectContact: _openContact,
+                          ),
+                          _SectionPlaceholder(
+                            title: _destinations[3].label,
+                            icon: _destinations[3].icon,
+                          ),
+                          _SectionPlaceholder(
+                            title: _destinations[4].label,
+                            icon: _destinations[4].icon,
+                          ),
+                          _SectionPlaceholder(
+                            title: _destinations[5].label,
+                            icon: _destinations[5].icon,
                           ),
                         ],
                       ),
@@ -267,23 +379,27 @@ class _CrmHomePageState extends State<CrmHomePage> {
             ],
           ),
         ),
-        bottomNavigationBar: wide
-            ? null
-            : BottomNavigationBar(
-                currentIndex: _tab,
-                onTap: (v) => setState(() => _tab = v),
-                items: const [
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.people_outline),
-                    label: 'Contacts',
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.business_outlined),
-                    label: 'Organizations',
-                  ),
-                ],
-              ),
       );
     },
+  );
+}
+
+/// Keeps a destination visibly routable while its full feature page is pending.
+class _SectionPlaceholder extends StatelessWidget {
+  const _SectionPlaceholder({required this.title, required this.icon});
+
+  final String title;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 48, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(height: 12),
+        Text(title, style: Theme.of(context).textTheme.headlineSmall),
+      ],
+    ),
   );
 }

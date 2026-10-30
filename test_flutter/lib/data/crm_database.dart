@@ -190,6 +190,7 @@ DatabaseSnapshot _snapshot(Database db) => {
               : r['interaction_type'],
           'summary': r['summary'],
           'follow_up_date': r['follow_up_date'],
+          'follow_up_completed': r['follow_up_completed'],
         },
       )
       .toList(),
