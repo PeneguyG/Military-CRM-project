@@ -5,8 +5,6 @@ import 'package:greeting_app/crm_store.dart';
 import 'package:greeting_app/main.dart';
 import 'package:greeting_app/models/crm_models.dart';
 import 'package:greeting_app/pages/contacts_page.dart';
-import 'package:greeting_app/pages/organizations_page.dart';
-import 'package:greeting_app/pages/crm_widgets.dart';
 
 void main() {
   const organization = Organization(
@@ -32,7 +30,7 @@ void main() {
     photoPath: '/missing/photo.png',
     notes: 'Private notes',
     talkingPoints: 'Next event',
-    status: ContactStatus.inactive,
+    status: ContactStatus.active,
   );
   final log = InteractionLog(
     id: 1,
@@ -52,7 +50,7 @@ void main() {
     expect(Contact.fromMap(contact.toMap()).toMap(), contact.toMap());
     expect(InteractionLog.fromMap(log.toMap()).toMap(), log.toMap());
     expect(contact.toMap()['is_archived'], 0);
-    expect(contact.toMap()['status'], 'inactive');
+    expect(contact.toMap()['status'], 'active');
   });
   test('Nullable copyWith supports explicit clearing and omitted values', () {
     expect(contact.copyWith(notes: 'Updated').photoPath, contact.photoPath);
@@ -105,11 +103,10 @@ void main() {
         interactions: [log],
       );
       addTearDown(store.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: ContactsPage(store: store)),
-        ),
-      );
+      await tester.pumpWidget(MilitaryCrmApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.people_outline).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Alex Morgan'));
       await tester.pumpAndSettle();
       expect(find.byType(ContactDetail), findsOneWidget);
@@ -145,8 +142,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(store.interactions.length, 2);
       expect(store.interactions.last.organizationId, 1);
+      final archiveButton = find.widgetWithText(OutlinedButton, 'Archive');
       await tester.scrollUntilVisible(
-        find.text('Archive'),
+        archiveButton,
         -300,
         scrollable: find
             .descendant(
@@ -155,12 +153,18 @@ void main() {
             )
             .first,
       );
-      await tester.tap(find.text('Archive'));
+      await tester.tap(archiveButton);
       await tester.pumpAndSettle();
       expect(store.contact(1)!.isArchived, isTrue);
-      await tester.tap(find.text('Restore'));
+      await tester.tap(find.byType(BackButton).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.archive_outlined).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Avery Morgan'), findsOneWidget);
+      await tester.tap(find.text('Mark active').first);
       await tester.pumpAndSettle();
       expect(store.contact(1)!.isArchived, isFalse);
+      expect(store.contact(1)!.status, ContactStatus.active);
       expect(store.interactions.length, 2);
       expect(tester.takeException(), isNull);
     },
@@ -175,6 +179,8 @@ void main() {
     await tester.pumpWidget(MilitaryCrmApp(store: sample));
     await tester.pumpAndSettle();
     expect(find.byType(NavigationRail), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.people_outline).first);
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'Sentinel');
     await tester.pumpAndSettle();
     expect(find.text('Alex Morgan'), findsNothing);
@@ -185,7 +191,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
-  testWidgets('Associated archived contact opens its mobile profile', (
+  testWidgets('Archived records only appear in Archive and can be activated', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -196,27 +202,18 @@ void main() {
     addTearDown(sample.dispose);
     await tester.pumpWidget(MilitaryCrmApp(store: sample));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Organizations').last);
+    await tester.tap(find.byIcon(Icons.business_outlined).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(Switch));
+    expect(find.text('Veterans Outreach Unit'), findsNothing);
+    expect(find.text('Sam Hayes'), findsNothing);
+    await tester.tap(find.byIcon(Icons.archive_outlined).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Veterans Outreach Unit'));
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('Colonel (Ret.) Sam Hayes'),
-      250,
-      scrollable: find
-          .descendant(
-            of: find.byType(OrganizationDetail),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
-    await tester.tap(find.text('Colonel (Ret.) Sam Hayes'));
-    await tester.pumpAndSettle();
-    expect(find.byType(ContactDetail), findsOneWidget);
     expect(find.text('Sam Hayes'), findsOneWidget);
-    expect(find.byType(StatusBadge), findsOneWidget);
+    expect(find.text('Veterans Outreach Unit'), findsOneWidget);
+    await tester.tap(find.text('Mark active').first);
+    await tester.pumpAndSettle();
+    expect(sample.contact(3)!.status, ContactStatus.active);
+    expect(find.text('Sam Hayes'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

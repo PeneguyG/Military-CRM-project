@@ -77,15 +77,21 @@ DatabaseSnapshot _execute(
           'summary': data['summary'],
           'follow_up_required': followUp == null ? 0 : 1,
           'follow_up_date': followUp?.substring(0, 10),
+          'follow_up_reason': data['follow_up_reason'] ?? '',
         });
       case 'archiveOrganization':
       case 'archiveContact':
         final table = operation == 'archiveOrganization'
             ? 'organizations'
             : 'contacts';
-        _update(db, table, data['id'] as int, {
-          'is_archived': data['archived'],
-        });
+        final values = <String, Object?>{'is_archived': data['archived']};
+        // The original SQLite CHECK constraint predates the app's Archived
+        // status. Store Archived as its legacy Inactive value while exposing
+        // the newer status through Contact.fromMap.
+        if (table == 'contacts') {
+          values['status'] = data['archived'] == 1 ? 'inactive' : 'active';
+        }
+        _update(db, table, data['id'] as int, values);
       case 'initialize':
       case 'load':
         break;
@@ -114,8 +120,8 @@ void _migrate(Database db) {
     final versions = db.select(
       'SELECT version FROM crm_app_migrations ORDER BY version DESC',
     );
-    final version = versions.isEmpty ? 0 : versions.first['version'] as int;
-    if (version > 1)
+    var version = versions.isEmpty ? 0 : versions.first['version'] as int;
+    if (version > 2)
       throw StateError('This database requires a newer CRM application.');
     if (version == 0) {
       db.execute('''
@@ -133,6 +139,13 @@ void _migrate(Database db) {
           SELECT RAISE(ABORT, 'Contacts must be archived, never deleted');
         END;
         INSERT INTO crm_app_migrations(version) VALUES(1);
+      ''');
+      version = 1;
+    }
+    if (version < 2) {
+      db.execute('''
+        ALTER TABLE interactions ADD COLUMN follow_up_reason TEXT NOT NULL DEFAULT '';
+        INSERT INTO crm_app_migrations(version) VALUES(2);
       ''');
     }
     db.execute('COMMIT;');
@@ -179,20 +192,23 @@ DatabaseSnapshot _snapshot(Database db) => {
       .toList(),
   'interactions': db
       .select('SELECT * FROM interactions ORDER BY occurred_at, id')
-      .map(
-        (r) => <String, Object?>{
+      .map((r) {
+        final occurredAt = r['occurred_at']?.toString();
+        final safeOccurredAt = occurredAt ?? '1970-01-01 00:00:00';
+        return <String, Object?>{
           'id': r['id'],
           'contact_id': r['contact_id'],
           'organization_id': r['organization_id'],
-          'date': '${(r['occurred_at'] as String).replaceFirst(' ', 'T')}Z',
+          'date': '${safeOccurredAt.replaceFirst(' ', 'T')}Z',
           'type': r['interaction_type'] == 'In-Person Meeting'
               ? 'In-Person'
-              : r['interaction_type'],
-          'summary': r['summary'],
+              : r['interaction_type'] ?? 'Call',
+          'summary': r['summary']?.toString() ?? '',
           'follow_up_date': r['follow_up_date'],
+          'follow_up_reason': r['follow_up_reason']?.toString() ?? '',
           'follow_up_completed': r['follow_up_completed'],
-        },
-      )
+        };
+      })
       .toList(),
 };
 
@@ -252,8 +268,13 @@ void _saveContact(Database db, Map<String, Object?> m) {
     }
   }
   for (final entry in fields.entries) {
-    if (original == null || original[entry.key] != m[entry.key])
-      values[entry.value] = m[entry.key];
+    if (original == null || original[entry.key] != m[entry.key]) {
+      // Keep the existing SQLite constraint compatible while the Dart model
+      // and interface use Active/Archived terminology.
+      values[entry.value] = entry.key == 'status' && m['status'] == 'archived'
+          ? 'inactive'
+          : m[entry.key];
+    }
   }
   if (id == null) {
     _insert(db, 'contacts', values);

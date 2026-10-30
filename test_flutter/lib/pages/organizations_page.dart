@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
+import '../phone_number.dart';
 import 'crm_widgets.dart';
 import 'record_browser.dart';
 
@@ -44,7 +45,6 @@ class OrganizationsPage extends StatefulWidget {
 
 class _OrganizationsPageState extends State<OrganizationsPage> {
   String _search = '';
-  bool _archived = false;
   int? _selected;
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -55,7 +55,7 @@ class _OrganizationsPageState extends State<OrganizationsPage> {
             widget.store.organizations
                 .where(
                   (o) =>
-                      o.isArchived == _archived &&
+                      !o.isArchived &&
                       [
                         o.name,
                         o.industry,
@@ -70,29 +70,13 @@ class _OrganizationsPageState extends State<OrganizationsPage> {
         final selected = items.where((o) => o.id == _selected).firstOrNull;
         return RecordBrowser(
           onAdd: () => editOrganization(context, widget.store),
-          filters: Column(
-            children: [
-              TextField(
-                decoration: const InputDecoration(
-                  labelText: 'Search organizations',
-                  hintText: 'Name, industry, location or notes',
-                  prefixIcon: Icon(Icons.search),
-                ),
-                onChanged: (v) =>
-                    setState(() => _search = v.trim().toLowerCase()),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  _archived ? 'Archived organizations' : 'Active organizations',
-                ),
-                value: _archived,
-                onChanged: (v) => setState(() {
-                  _archived = v;
-                  _selected = null;
-                }),
-              ),
-            ],
+          filters: TextField(
+            decoration: const InputDecoration(
+              labelText: 'Search organizations',
+              hintText: 'Name, industry, location or notes',
+              prefixIcon: Icon(Icons.search),
+            ),
+            onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
           ),
           list: items.isEmpty
               ? const Center(child: Text('No matching organizations'))
@@ -159,19 +143,23 @@ class OrganizationDetail extends StatelessWidget {
       final o = store.organization(id);
       if (o == null)
         return const Center(child: Text('Organization unavailable'));
+      if (o.isArchived) {
+        return const Center(
+          child: Text(
+            'This organization is archived. Open the Archive tab to view it.',
+          ),
+        );
+      }
       final contacts =
-          store.contacts.where((c) => c.organizationId == id).toList()
+          store.contacts
+              .where((c) => c.organizationId == id && !c.isArchived)
+              .toList()
             ..sort((a, b) => a.fullName.compareTo(b.fullName));
       return ListView(
         padding: const EdgeInsets.all(20),
         children: [
           Text(o.name, style: Theme.of(context).textTheme.headlineMedium),
           Text(o.industry),
-          if (o.isArchived)
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Chip(label: Text('Archived')),
-            ),
           Wrap(
             spacing: 8,
             children: [
@@ -183,12 +171,10 @@ class OrganizationDetail extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => runDatabaseAction(
                   context,
-                  () => store.archiveOrganization(o.id!, !o.isArchived),
+                  () => store.archiveOrganization(o.id!, true),
                 ),
-                icon: Icon(
-                  o.isArchived ? Icons.unarchive : Icons.archive_outlined,
-                ),
-                label: Text(o.isArchived ? 'Restore' : 'Archive'),
+                icon: const Icon(Icons.archive_outlined),
+                label: const Text('Archive'),
               ),
             ],
           ),
@@ -197,7 +183,7 @@ class OrganizationDetail extends StatelessWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.phone),
-              title: Text(o.phone),
+              title: Text(formatPhoneForDisplay(o.phone)),
               subtitle: const Text('Call or text'),
               onTap: () => phoneAction(context, o.phone),
             ),
@@ -218,13 +204,7 @@ class OrganizationDetail extends StatelessWidget {
               child: ListTile(
                 leading: ContactPhoto(c, size: 40),
                 title: Text('${c.title} ${c.fullName}'.trim()),
-                subtitle: Wrap(
-                  spacing: 8,
-                  children: [
-                    StatusBadge(c.status),
-                    if (c.isArchived) const Chip(label: Text('Archived')),
-                  ],
-                ),
+                subtitle: Wrap(spacing: 8, children: [StatusBadge(c.status)]),
                 onTap: () => onSelectContact(c),
               ),
             ),

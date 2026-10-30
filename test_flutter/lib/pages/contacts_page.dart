@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
+import '../phone_number.dart';
 import 'crm_widgets.dart';
 import 'record_browser.dart';
 
@@ -16,7 +17,14 @@ Future<void> editContact(
     builder: (_) => RecordForm(
       title: contact == null ? 'Add contact' : 'Edit contact',
       values: original.toMap(),
-      onSave: (values) => store.saveContact(Contact.fromMap(values)),
+      onSave: (values) {
+        // Status is the contact-facing control for archiving. Keep the legacy
+        // storage flag in sync so archived contacts move into Archive.
+        values['is_archived'] = values['status'] == ContactStatus.archived.name
+            ? 1
+            : 0;
+        return store.saveContact(Contact.fromMap(values));
+      },
       organizations: store.organizations,
       organizationId: original.organizationId,
       contactStatus: original.status,
@@ -47,9 +55,6 @@ class ContactsPage extends StatefulWidget {
 
 class _ContactsPageState extends State<ContactsPage> {
   String _search = '';
-  late bool _archived =
-      widget.store.contact(widget.initialContactId)?.isArchived ?? false;
-  ContactStatus? _status;
   late int? _selected = widget.initialContactId;
   @override
   void initState() {
@@ -75,8 +80,7 @@ class _ContactsPageState extends State<ContactsPage> {
             widget.store.contacts
                 .where(
                   (c) =>
-                      c.isArchived == _archived &&
-                      (_status == null || c.status == _status) &&
+                      !c.isArchived &&
                       [
                         c.fullName,
                         c.title,
@@ -95,60 +99,13 @@ class _ContactsPageState extends State<ContactsPage> {
         final selected = items.where((c) => c.id == _selected).firstOrNull;
         return RecordBrowser(
           onAdd: () => editContact(context, widget.store),
-          filters: Column(
-            children: [
-              TextField(
-                decoration: const InputDecoration(
-                  labelText: 'Search contacts',
-                  hintText: 'Name, rank, organization, location or notes',
-                  prefixIcon: Icon(Icons.search),
-                ),
-                onChanged: (v) =>
-                    setState(() => _search = v.trim().toLowerCase()),
-              ),
-              Wrap(
-                spacing: 12,
-                runSpacing: 8,
-                children: [
-                  SizedBox(
-                    width: 180,
-                    child: DropdownButtonFormField<String>(
-                      isExpanded: true,
-                      initialValue: _status?.name ?? 'all',
-                      decoration: const InputDecoration(
-                        labelText: 'Contact status',
-                      ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: 'all',
-                          child: Text('All'),
-                        ),
-                        for (final s in ContactStatus.values)
-                          DropdownMenuItem(
-                            value: s.name,
-                            child: Text(label(s.name)),
-                          ),
-                      ],
-                      onChanged: (v) => setState(
-                        () => _status = v == 'all'
-                            ? null
-                            : ContactStatus.values.byName(v!),
-                      ),
-                    ),
-                  ),
-                  FilterChip(
-                    label: Text(
-                      _archived ? 'Archived records' : 'Active records',
-                    ),
-                    selected: _archived,
-                    onSelected: (v) => setState(() {
-                      _archived = v;
-                      _selected = null;
-                    }),
-                  ),
-                ],
-              ),
-            ],
+          filters: TextField(
+            decoration: const InputDecoration(
+              labelText: 'Search contacts',
+              hintText: 'Name, rank, organization, location or notes',
+              prefixIcon: Icon(Icons.search),
+            ),
+            onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
           ),
           list: items.isEmpty
               ? const Center(child: Text('No matching contacts'))
@@ -205,6 +162,7 @@ class ContactDetail extends StatelessWidget {
             type: result['type'] as String,
             summary: result['summary'] as String,
             followUpDate: result['followUp'] as DateTime?,
+            followUpReason: result['followUpReason'] as String? ?? '',
           ),
         ),
       ),
@@ -217,6 +175,13 @@ class ContactDetail extends StatelessWidget {
     builder: (context, _) {
       final c = store.contact(id);
       if (c == null) return const Center(child: Text('Contact unavailable'));
+      if (c.isArchived) {
+        return const Center(
+          child: Text(
+            'This contact is archived. Open the Archive tab to view it.',
+          ),
+        );
+      }
       final organization = store.organization(c.organizationId);
       final logs = store.interactions.where((i) => i.contactId == id).toList()
         ..sort((a, b) => b.date.compareTo(a.date));
@@ -234,15 +199,11 @@ class ContactDetail extends StatelessWidget {
           Text(
             organization == null
                 ? 'No organization'
-                : '${organization.name}${organization.isArchived ? ' (Archived)' : ''}',
+                : organization.isArchived
+                ? 'Archived organization (see Archive tab)'
+                : organization.name,
           ),
-          Wrap(
-            spacing: 8,
-            children: [
-              StatusBadge(c.status),
-              if (c.isArchived) const Chip(label: Text('Archived')),
-            ],
-          ),
+          Wrap(spacing: 8, children: [StatusBadge(c.status)]),
           Wrap(
             spacing: 8,
             children: [
@@ -254,12 +215,10 @@ class ContactDetail extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => runDatabaseAction(
                   context,
-                  () => store.archiveContact(c.id!, !c.isArchived),
+                  () => store.archiveContact(c.id!, true),
                 ),
-                icon: Icon(
-                  c.isArchived ? Icons.unarchive : Icons.archive_outlined,
-                ),
-                label: Text(c.isArchived ? 'Restore' : 'Archive'),
+                icon: const Icon(Icons.archive_outlined),
+                label: const Text('Archive'),
               ),
             ],
           ),
@@ -268,7 +227,7 @@ class ContactDetail extends StatelessWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.phone),
-              title: Text(c.phone),
+              title: Text(formatPhoneForDisplay(c.phone)),
               subtitle: const Text('Call or text'),
               onTap: () async {
                 final type = await phoneAction(context, c.phone);
@@ -316,8 +275,15 @@ class ContactDetail extends StatelessWidget {
                     if (log.followUpDate != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          'Follow-up: ${localizations.formatMediumDate(log.followUpDate!.toLocal())}',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Follow-up: ${localizations.formatMediumDate(log.followUpDate!.toLocal())}',
+                            ),
+                            if (log.followUpReason.trim().isNotEmpty)
+                              Text('Reason: ${log.followUpReason.trim()}'),
+                          ],
                         ),
                       ),
                   ],

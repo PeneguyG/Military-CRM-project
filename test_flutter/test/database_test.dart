@@ -47,7 +47,7 @@ void main() {
           photoPath: 'C:/photos/jane.png',
           notes: "Quotes ' and SQL ; remain literal",
           talkingPoints: 'Readiness',
-          status: ContactStatus.inactive,
+          status: ContactStatus.active,
         ),
       );
       final contactId = store.contacts.single.id!;

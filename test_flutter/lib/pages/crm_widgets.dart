@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/crm_models.dart';
+import '../phone_number.dart';
 
 String label(String value) => value[0].toUpperCase() + value.substring(1);
 
@@ -31,17 +32,15 @@ class StatusBadge extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final color = switch (status) {
       ContactStatus.active => dark ? Colors.greenAccent : Colors.green.shade800,
-      ContactStatus.inactive =>
-        dark ? Colors.orangeAccent : Colors.deepOrange.shade800,
-      ContactStatus.deceased =>
-        dark ? Colors.grey.shade300 : Colors.grey.shade800,
+      ContactStatus.archived =>
+        dark ? Colors.grey.shade300 : Colors.grey.shade700,
     };
     return Chip(
       label: Text(label(status.name), style: TextStyle(color: color)),
       avatar: Icon(
         Icons.circle,
         size: 12,
-        color: status == ContactStatus.inactive ? Colors.orange : color,
+        color: status == ContactStatus.archived ? Colors.grey : color,
       ),
     );
   }
@@ -97,7 +96,7 @@ Future<String?> phoneAction(BuildContext context, String phone) async {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(title: Text(phone)),
+          ListTile(title: Text(formatPhoneForDisplay(phone))),
           ListTile(
             leading: const Icon(Icons.call),
             title: const Text('Call'),
@@ -115,7 +114,7 @@ Future<String?> phoneAction(BuildContext context, String phone) async {
   if (type == null || !context.mounted) return null;
   try {
     final launched = await launchUrl(
-      Uri(scheme: type == 'Call' ? 'tel' : 'sms', path: phone.trim()),
+      Uri(scheme: type == 'Call' ? 'tel' : 'sms', path: phoneDigits(phone)),
     );
     if (launched) return type;
   } catch (_) {
@@ -162,7 +161,11 @@ class _RecordFormState extends State<RecordForm> {
   final _key = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers = {
     for (final key in widget.fields.keys)
-      key: TextEditingController(text: widget.values[key] as String? ?? ''),
+      key: TextEditingController(
+        text: key == 'phone'
+            ? formatPhoneForEditing(widget.values[key] as String? ?? '')
+            : widget.values[key] as String? ?? '',
+      ),
   };
   late int? _organizationId = widget.organizationId;
   late ContactStatus _status = widget.contactStatus ?? ContactStatus.active;
@@ -218,8 +221,16 @@ class _RecordFormState extends State<RecordForm> {
                           : entry.key == 'email'
                           ? TextInputType.emailAddress
                           : TextInputType.text,
+                      inputFormatters: entry.key == 'phone'
+                          ? const [UsPhoneNumberFormatter()]
+                          : null,
                       validator: (value) {
                         final text = value?.trim() ?? '';
+                        if (entry.key == 'phone' &&
+                            text.isNotEmpty &&
+                            phoneDigits(text).length != 10) {
+                          return 'Enter a 10-digit phone number.';
+                        }
                         if ([
                               'name',
                               'first_name',
@@ -334,11 +345,13 @@ class _InteractionFormState extends State<InteractionForm> {
   String? _error;
   final _key = GlobalKey<FormState>();
   final _summary = TextEditingController();
+  final _followUpReason = TextEditingController();
   late String _type = widget.initialType;
   DateTime? _followUp;
   @override
   void dispose() {
     _summary.dispose();
+    _followUpReason.dispose();
     super.dispose();
   }
 
@@ -403,11 +416,37 @@ class _InteractionFormState extends State<InteractionForm> {
                       setState(() => _followUp = date);
                   },
                 ),
-                if (_followUp != null)
+                if (_followUp != null) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Follow-up details',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _followUpReason,
+                    minLines: 2,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: 'Reason for follow-up',
+                      hintText: 'What should you discuss or check on?',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Enter a reason for the scheduled follow-up.'
+                        : null,
+                  ),
                   TextButton(
-                    onPressed: () => setState(() => _followUp = null),
+                    onPressed: () => setState(() {
+                      _followUp = null;
+                      _followUpReason.clear();
+                    }),
                     child: const Text('Clear follow-up'),
                   ),
+                ],
               ],
             ),
           ),
@@ -427,6 +466,9 @@ class _InteractionFormState extends State<InteractionForm> {
                     'type': _type,
                     'summary': _summary.text.trim(),
                     'followUp': _followUp,
+                    'followUpReason': _followUp == null
+                        ? ''
+                        : _followUpReason.text.trim(),
                   };
                   setState(() {
                     _saving = true;

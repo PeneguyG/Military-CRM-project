@@ -9,6 +9,7 @@ import 'pages/crm_widgets.dart';
 import 'pages/contacts_page.dart';
 import 'pages/organizations_page.dart';
 import 'pages/home_page.dart';
+import 'pages/archive_page.dart';
 import 'models/crm_models.dart';
 
 void main() => runApp(const MilitaryCrmApp());
@@ -366,10 +367,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             title: _destinations[4].label,
                             icon: _destinations[4].icon,
                           ),
-                          _SectionPlaceholder(
-                            title: _destinations[5].label,
-                            icon: _destinations[5].icon,
-                          ),
+                          ArchivePage(store: _store),
                         ],
                       ),
                     ),

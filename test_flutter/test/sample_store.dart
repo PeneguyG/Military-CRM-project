@@ -57,7 +57,6 @@ CrmStore sampleStore() => CrmStore(
       email: 'taylor.reed@example.com',
       address: 'Arlington, VA',
       talkingPoints: 'Upcoming logistics workshop.',
-      status: ContactStatus.inactive,
     ),
     Contact(
       id: 3,
@@ -65,7 +64,7 @@ CrmStore sampleStore() => CrmStore(
       firstName: 'Sam',
       lastName: 'Hayes',
       title: 'Colonel (Ret.)',
-      status: ContactStatus.deceased,
+      status: ContactStatus.archived,
       isArchived: true,
       notes: 'Historical contact retained in full.',
     ),
