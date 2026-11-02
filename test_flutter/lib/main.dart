@@ -23,6 +23,7 @@ class MilitaryCrmApp extends StatefulWidget {
 
 class _MilitaryCrmAppState extends State<MilitaryCrmApp>
     with WidgetsBindingObserver {
+  bool _isAuthenticated = false;
   ThemeMode? _override;
   late final Timer _timer;
   late Future<CrmStore> _opening;
@@ -78,7 +79,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
         _override ??
         (hour >= 6 && hour < 18 ? ThemeMode.light : ThemeMode.dark);
     return MaterialApp(
-      title: 'Military CRM',
+      title: 'Steel Wings CRM',
       debugShowCheckedModeBanner: false,
       themeMode: mode,
       theme: ThemeData(
@@ -92,53 +93,152 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
           brightness: Brightness.dark,
         ),
       ),
-      home: FutureBuilder<CrmStore>(
-        future: _opening,
-        builder: (context, snapshot) {
-          if (snapshot.hasError)
-            return Scaffold(
-              appBar: AppBar(title: const Text('Military CRM')),
-              body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
+      home: _isAuthenticated
+          ? FutureBuilder<CrmStore>(
+              future: _opening,
+              builder: (context, snapshot) {
+                if (snapshot.hasError)
+                  return Scaffold(
+                    appBar: AppBar(title: const Text('Steel Wings CRM')),
+                    body: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Could not open the local database. Check that its folder is writable and the database is not locked.',
+                            ),
+                            const SizedBox(height: 12),
+                            SelectableText('${snapshot.error}'),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: () =>
+                                  setState(() => _opening = _openStore()),
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                if (!snapshot.hasData)
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                return CrmHomePage(
+                  store: snapshot.data!,
+                  isDarkMode: mode == ThemeMode.dark,
+                  automaticTheme: _override == null,
+                  onToggleTheme: () => setState(
+                    () => _override = mode == ThemeMode.dark
+                        ? ThemeMode.light
+                        : ThemeMode.dark,
+                  ),
+                  onAutomaticTheme: () => setState(() => _override = null),
+                  onLock: () => setState(() => _isAuthenticated = false),
+                );
+              },
+            )
+          : _SignInPage(
+              onAuthenticated: () => setState(() => _isAuthenticated = true),
+            ),
+    );
+  }
+}
+
+class _SignInPage extends StatefulWidget {
+  const _SignInPage({required this.onAuthenticated});
+
+  final VoidCallback onAuthenticated;
+
+  @override
+  State<_SignInPage> createState() => _SignInPageState();
+}
+
+class _SignInPageState extends State<_SignInPage> {
+  static const _password = 'Mushroomkingdom24?';
+  final _passwordController = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_passwordController.text == _password) {
+      FocusScope.of(context).unfocus();
+      widget.onAuthenticated();
+      return;
+    }
+
+    setState(() {
+      _error = 'Incorrect password. Try again.';
+      _passwordController.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        'Could not open the local database. Check that its folder is writable and the database is not locked.',
+                      Image.asset(
+                        'assets/steel_wings_crm_logo.png',
+                        width: 300,
+                        height: 300,
+                        fit: BoxFit.contain,
                       ),
-                      const SizedBox(height: 12),
-                      SelectableText('${snapshot.error}'),
-                      const SizedBox(height: 12),
-                      FilledButton(
-                        onPressed: () =>
-                            setState(() => _opening = _openStore()),
-                        child: const Text('Retry'),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Sign in to Steel Wings CRM',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 24),
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: true,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _submit(),
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          errorText: _error,
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _submit,
+                          icon: const Icon(Icons.login),
+                          label: const Text('Sign in'),
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-            );
-          if (!snapshot.hasData)
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          return CrmHomePage(
-            store: snapshot.data!,
-            isDarkMode: mode == ThemeMode.dark,
-            automaticTheme: _override == null,
-            onToggleTheme: () => setState(
-              () => _override = mode == ThemeMode.dark
-                  ? ThemeMode.light
-                  : ThemeMode.dark,
             ),
-            onAutomaticTheme: () => setState(() => _override = null),
-          );
-        },
+          ),
+        ),
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// One entry in the CRM navigation system, including its regular and selected icon.
@@ -163,6 +263,7 @@ class CrmHomePage extends StatefulWidget {
     required this.onToggleTheme,
     required this.automaticTheme,
     required this.onAutomaticTheme,
+    required this.onLock,
   });
 
   final bool isDarkMode;
@@ -170,6 +271,7 @@ class CrmHomePage extends StatefulWidget {
   final CrmStore store;
   final VoidCallback onToggleTheme;
   final VoidCallback onAutomaticTheme;
+  final VoidCallback onLock;
 
   @override
   State<CrmHomePage> createState() => _CrmHomePageState();
@@ -263,6 +365,11 @@ class _CrmHomePageState extends State<CrmHomePage> {
                   : 'Use automatic time-based theme',
               onPressed: widget.onAutomaticTheme,
               icon: Icon(widget.automaticTheme ? Icons.schedule : Icons.update),
+            ),
+            IconButton(
+              tooltip: 'Lock app',
+              onPressed: widget.onLock,
+              icon: const Icon(Icons.lock_outline),
             ),
           ],
         ),

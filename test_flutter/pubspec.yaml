@@ -23,3 +23,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/schema_v1.sql
+    - assets/steel_wings_crm_logo.png
