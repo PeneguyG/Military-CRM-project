@@ -129,6 +129,10 @@ class _ArchivedContactCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final details = [
+      if (contact.militaryRank.trim().isNotEmpty)
+        contact.militaryRank.trim(),
+      if (contact.militaryBranch.trim().isNotEmpty)
+        contact.militaryBranch.trim(),
       if (contact.title.trim().isNotEmpty) contact.title.trim(),
       if (organizationName != null && organizationName!.trim().isNotEmpty)
         organizationName!.trim(),

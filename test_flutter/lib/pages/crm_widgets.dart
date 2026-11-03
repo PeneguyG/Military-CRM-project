@@ -1,5 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/crm_models.dart';
 import '../phone_number.dart';
@@ -56,6 +61,18 @@ class ContactPhoto extends StatelessWidget {
       radius: size / 2,
       child: Icon(Icons.person, size: size / 2),
     );
+    final photoBytes = contact.photoBytes;
+    if (photoBytes != null && photoBytes.isNotEmpty) {
+      return ClipOval(
+        child: Image.memory(
+          photoBytes,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      );
+    }
     final path = contact.photoPath;
     if (path == null || path.trim().isEmpty) return fallback;
     return ClipOval(
@@ -137,6 +154,7 @@ class RecordForm extends StatefulWidget {
     required this.title,
     required this.values,
     required this.fields,
+    this.dropdownFields = const {},
     this.organizations,
     this.contactStatus,
     this.organizationId,
@@ -146,6 +164,7 @@ class RecordForm extends StatefulWidget {
   final String title;
   final Map<String, Object?> values;
   final Map<String, String> fields;
+  final Map<String, List<String>> dropdownFields;
   final List<Organization>? organizations;
   final ContactStatus? contactStatus;
   final int? organizationId;
@@ -160,21 +179,214 @@ class _RecordFormState extends State<RecordForm> {
   String? _error;
   final _key = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers = {
-    for (final key in widget.fields.keys)
+    for (final key in widget.fields.keys.where(
+      (key) =>
+          !widget.dropdownFields.containsKey(key) &&
+          key != 'children_json' &&
+          key != 'photo_blob',
+    ))
       key: TextEditingController(
         text: key == 'phone'
             ? formatPhoneForEditing(widget.values[key] as String? ?? '')
             : widget.values[key] as String? ?? '',
       ),
   };
+  late final Map<String, String> _dropdownValues = {
+    for (final entry in widget.dropdownFields.entries)
+      entry.key: widget.values[entry.key] as String? ?? '',
+  };
   late int? _organizationId = widget.organizationId;
   late ContactStatus _status = widget.contactStatus ?? ContactStatus.active;
+  late List<ChildRecord> _children = ChildRecord.decodeMany(
+    widget.values['children_json'],
+  );
+  late Uint8List? _photoBytes = _readPhotoBytes(widget.values['photo_blob']);
+  late String? _photoPath = widget.values['photo_path'] as String?;
   @override
   void dispose() {
     for (final c in _controllers.values) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Widget _recordField(MapEntry<String, String> entry) {
+    if (entry.key == 'children_json') {
+      return ChildrenEditor(
+        initialChildren: _children,
+        onChanged: (children) => _children = children,
+      );
+    }
+    if (entry.key == 'photo_blob') return _photoField(entry.value);
+
+    final options = widget.dropdownFields[entry.key];
+    if (options != null) {
+      final selectedValue = _dropdownValues[entry.key] ?? '';
+      final availableOptions = [...options];
+      if (!availableOptions.contains(selectedValue)) {
+        availableOptions.add(selectedValue);
+      }
+
+      return DropdownButtonFormField<String>(
+        initialValue: selectedValue,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: entry.value,
+          border: const OutlineInputBorder(),
+        ),
+        items: [
+          for (final option in availableOptions)
+            DropdownMenuItem(
+              value: option,
+              child: Text(
+                option.isEmpty ? 'None' : option,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: (value) => setState(() {
+          _dropdownValues[entry.key] = value ?? '';
+        }),
+      );
+    }
+
+    return TextFormField(
+      controller: _controllers[entry.key],
+      decoration: InputDecoration(
+        labelText: entry.value,
+        border: const OutlineInputBorder(),
+      ),
+      minLines: entry.key == 'notes' || entry.key == 'talking_points' ? 3 : 1,
+      maxLines:
+          entry.key == 'notes' ||
+              entry.key == 'talking_points' ||
+              entry.key == 'children_info'
+          ? 5
+          : 1,
+      keyboardType: entry.key == 'phone'
+          ? TextInputType.phone
+          : entry.key == 'email'
+          ? TextInputType.emailAddress
+          : TextInputType.text,
+      inputFormatters: entry.key == 'phone'
+          ? const [UsPhoneNumberFormatter()]
+          : null,
+      validator: (value) {
+        final text = value?.trim() ?? '';
+        if (entry.key == 'phone' &&
+            text.isNotEmpty &&
+            phoneDigits(text).length != 10) {
+          return 'Enter a 10-digit phone number.';
+        }
+        if (['name', 'first_name', 'last_name'].contains(entry.key) &&
+            text.isEmpty) {
+          return 'Required';
+        }
+        if (entry.key == 'email' &&
+            text.isNotEmpty &&
+            !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(text)) {
+          return 'Enter a valid email address';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _photoField(String title) {
+    final bytes = _photoBytes;
+    final path = _photoPath;
+    Widget preview;
+    if (bytes != null && bytes.isNotEmpty) {
+      preview = Image.memory(
+        bytes,
+        width: 88,
+        height: 88,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined),
+      );
+    } else if (path != null && path.trim().isNotEmpty) {
+      preview = Image.file(
+        File(path),
+        width: 88,
+        height: 88,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const Icon(Icons.person_outline),
+      );
+    } else {
+      preview = const SizedBox(
+        width: 88,
+        height: 88,
+        child: Icon(Icons.person_outline, size: 44),
+      );
+    }
+
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: title,
+        border: const OutlineInputBorder(),
+      ),
+      child: Row(
+        children: [
+          ClipOval(child: preview),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : _selectPhoto,
+                  icon: const Icon(Icons.upload_file),
+                  label: Text(bytes == null ? 'Choose photo' : 'Replace photo'),
+                ),
+                if (bytes != null || (path?.trim().isNotEmpty ?? false))
+                  TextButton.icon(
+                    onPressed: _saving
+                        ? null
+                        : () => setState(() {
+                            _photoBytes = null;
+                            _photoPath = null;
+                          }),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Remove'),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _selectPhoto() async {
+    try {
+      final file = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(
+            label: 'Images',
+            extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'],
+          ),
+        ],
+      );
+      if (file == null || !mounted) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      if (bytes.isEmpty) {
+        setState(() => _error = 'The selected image is empty.');
+        return;
+      }
+      setState(() {
+        _photoBytes = bytes;
+        _photoPath = null;
+        _error = null;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = 'Could not load that image. Please try another file.',
+        );
+      }
+    }
   }
 
   @override
@@ -200,53 +412,7 @@ class _RecordFormState extends State<RecordForm> {
                 for (final entry in widget.fields.entries)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: TextFormField(
-                      controller: _controllers[entry.key],
-                      decoration: InputDecoration(
-                        labelText: entry.value,
-                        border: const OutlineInputBorder(),
-                      ),
-                      minLines:
-                          entry.key == 'notes' || entry.key == 'talking_points'
-                          ? 3
-                          : 1,
-                      maxLines:
-                          entry.key == 'notes' ||
-                              entry.key == 'talking_points' ||
-                              entry.key == 'children_info'
-                          ? 5
-                          : 1,
-                      keyboardType: entry.key == 'phone'
-                          ? TextInputType.phone
-                          : entry.key == 'email'
-                          ? TextInputType.emailAddress
-                          : TextInputType.text,
-                      inputFormatters: entry.key == 'phone'
-                          ? const [UsPhoneNumberFormatter()]
-                          : null,
-                      validator: (value) {
-                        final text = value?.trim() ?? '';
-                        if (entry.key == 'phone' &&
-                            text.isNotEmpty &&
-                            phoneDigits(text).length != 10) {
-                          return 'Enter a 10-digit phone number.';
-                        }
-                        if ([
-                              'name',
-                              'first_name',
-                              'last_name',
-                            ].contains(entry.key) &&
-                            text.isEmpty)
-                          return 'Required';
-                        if (entry.key == 'email' &&
-                            text.isNotEmpty &&
-                            !RegExp(
-                              r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                            ).hasMatch(text))
-                          return 'Enter a valid email address';
-                        return null;
-                      },
-                    ),
+                    child: _recordField(entry),
                   ),
                 if (!widget.organizationForm) ...[
                   DropdownButtonFormField<int>(
@@ -301,10 +467,15 @@ class _RecordFormState extends State<RecordForm> {
                   for (final entry in _controllers.entries) {
                     result[entry.key] = entry.value.text.trim();
                   }
+                  result.addAll(_dropdownValues);
                   if (!widget.organizationForm) {
                     result['organization_id'] = _organizationId;
                     result['status'] = _status.name;
-                    if (result['photo_path'] == '') result['photo_path'] = null;
+                    result['children_json'] = jsonEncode(
+                      _children.map((child) => child.toMap()).toList(),
+                    );
+                    result['photo_blob'] = _photoBytes;
+                    result['photo_path'] = _photoPath;
                   }
                   setState(() {
                     _saving = true;
@@ -330,6 +501,132 @@ class _RecordFormState extends State<RecordForm> {
       ],
     ),
   );
+}
+
+class _ChildDraft {
+  _ChildDraft({String name = '', String age = ''})
+    : name = TextEditingController(text: name),
+      age = TextEditingController(text: age);
+
+  final TextEditingController name;
+  final TextEditingController age;
+
+  void dispose() {
+    name.dispose();
+    age.dispose();
+  }
+}
+
+class ChildrenEditor extends StatefulWidget {
+  const ChildrenEditor({
+    super.key,
+    required this.initialChildren,
+    required this.onChanged,
+  });
+
+  final List<ChildRecord> initialChildren;
+  final ValueChanged<List<ChildRecord>> onChanged;
+
+  @override
+  State<ChildrenEditor> createState() => _ChildrenEditorState();
+}
+
+class _ChildrenEditorState extends State<ChildrenEditor> {
+  late final List<_ChildDraft> _rows = [
+    for (final child in widget.initialChildren)
+      _ChildDraft(name: child.name, age: child.age?.toString() ?? ''),
+  ];
+
+  @override
+  void dispose() {
+    for (final row in _rows) {
+      row.dispose();
+    }
+    super.dispose();
+  }
+
+  void _notifyChanged() {
+    widget.onChanged([
+      for (final row in _rows)
+        if (row.name.text.trim().isNotEmpty)
+          ChildRecord(
+            name: row.name.text.trim(),
+            age: int.tryParse(row.age.text.trim()),
+          ),
+    ]);
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (_rows.isEmpty)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text('No children added.'),
+        ),
+      for (var index = 0; index < _rows.length; index++) ...[
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: TextFormField(
+                controller: _rows[index].name,
+                decoration: InputDecoration(
+                  labelText: 'Child ${index + 1} name',
+                  border: const OutlineInputBorder(),
+                ),
+                textCapitalization: TextCapitalization.words,
+                onChanged: (_) => _notifyChanged(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 1,
+              child: TextFormField(
+                controller: _rows[index].age,
+                decoration: const InputDecoration(
+                  labelText: 'Age',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) => _notifyChanged(),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Remove child',
+              onPressed: () {
+                final removed = _rows.removeAt(index);
+                removed.dispose();
+                setState(_notifyChanged);
+              },
+              icon: const Icon(Icons.remove_circle_outline),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ],
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => setState(() {
+            _rows.add(_ChildDraft());
+            _notifyChanged();
+          }),
+          icon: const Icon(Icons.add),
+          label: const Text('Add child'),
+        ),
+      ),
+    ],
+  );
+}
+
+Uint8List? _readPhotoBytes(Object? value) {
+  if (value is Uint8List) return value;
+  if (value is List<int>) return Uint8List.fromList(value);
+  return null;
 }
 
 class InteractionForm extends StatefulWidget {

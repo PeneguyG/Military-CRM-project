@@ -121,7 +121,7 @@ void _migrate(Database db) {
       'SELECT version FROM crm_app_migrations ORDER BY version DESC',
     );
     var version = versions.isEmpty ? 0 : versions.first['version'] as int;
-    if (version > 2)
+    if (version > 4)
       throw StateError('This database requires a newer CRM application.');
     if (version == 0) {
       db.execute('''
@@ -146,6 +146,23 @@ void _migrate(Database db) {
       db.execute('''
         ALTER TABLE interactions ADD COLUMN follow_up_reason TEXT NOT NULL DEFAULT '';
         INSERT INTO crm_app_migrations(version) VALUES(2);
+      ''');
+      version = 2;
+    }
+    if (version < 3) {
+      db.execute('''
+        ALTER TABLE contacts ADD COLUMN prefix TEXT;
+        ALTER TABLE contacts ADD COLUMN suffix TEXT;
+        ALTER TABLE contacts ADD COLUMN military_branch TEXT;
+        ALTER TABLE contacts ADD COLUMN military_rank TEXT;
+        INSERT INTO crm_app_migrations(version) VALUES(3);
+      ''');
+      version = 3;
+    }
+    if (version < 4) {
+      db.execute('''
+        ALTER TABLE contacts ADD COLUMN children_json TEXT;
+        INSERT INTO crm_app_migrations(version) VALUES(4);
       ''');
     }
     db.execute('COMMIT;');
@@ -240,15 +257,21 @@ void _saveOrganization(Database db, Map<String, Object?> m) {
 void _saveContact(Database db, Map<String, Object?> m) {
   const fields = {
     'organization_id': 'organization_id',
+    'prefix': 'prefix',
     'first_name': 'first_name',
     'last_name': 'last_name',
+    'suffix': 'suffix',
+    'military_branch': 'military_branch',
+    'military_rank': 'military_rank',
     'title': 'rank_or_title',
     'phone': 'primary_phone',
     'email': 'email',
     'address': 'address',
     'spouse_name': 'spouse_name',
     'children_info': 'children_details',
+    'children_json': 'children_json',
     'photo_path': 'photo_path',
+    'photo_blob': 'photo_blob',
     'notes': 'general_notes',
     'talking_points': 'talking_points',
     'status': 'status',
@@ -268,7 +291,8 @@ void _saveContact(Database db, Map<String, Object?> m) {
     }
   }
   for (final entry in fields.entries) {
-    if (original == null || original[entry.key] != m[entry.key]) {
+    if (original == null ||
+        !_sameContactValue(entry.key, original[entry.key], m[entry.key])) {
       // Keep the existing SQLite constraint compatible while the Dart model
       // and interface use Active/Archived terminology.
       values[entry.value] = entry.key == 'status' && m['status'] == 'archived'
@@ -281,6 +305,18 @@ void _saveContact(Database db, Map<String, Object?> m) {
   } else {
     _update(db, 'contacts', id, values);
   }
+}
+
+bool _sameContactValue(String key, Object? first, Object? second) {
+  if (key != 'photo_blob') return first == second;
+  if (identical(first, second)) return true;
+  if (first == null || second == null) return first == second;
+  if (first is! List<int> || second is! List<int>) return first == second;
+  if (first.length != second.length) return false;
+  for (var index = 0; index < first.length; index++) {
+    if (first[index] != second[index]) return false;
+  }
+  return true;
 }
 
 void _insert(Database db, String table, Map<String, Object?> values) {

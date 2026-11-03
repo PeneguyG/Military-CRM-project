@@ -5,33 +5,15 @@ import '../models/crm_models.dart';
 import '../phone_number.dart';
 import 'crm_widgets.dart';
 
-/// Holds the destination data needed to build a Home-page shortcut button.
-class HomeShortcut {
-  const HomeShortcut({
-    required this.tabIndex,
-    required this.label,
-    required this.icon,
-  });
-
-  /// The index is shared with the parent navigation rail's destination list.
-  final int tabIndex;
-  final String label;
-  final IconData icon;
-}
-
-/// Dashboard shown on the Home tab, with shortcuts and today's call list.
+/// Dashboard shown on the Home tab, with CRM statistics and today's call list.
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
     required this.store,
-    required this.shortcuts,
-    required this.onSelectTab,
     required this.onOpenContact,
   });
 
   final CrmStore store;
-  final List<HomeShortcut> shortcuts;
-  final ValueChanged<int> onSelectTab;
   final ValueChanged<Contact> onOpenContact;
 
   @override
@@ -54,30 +36,209 @@ class HomePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              Text('Quick access', style: textTheme.titleLarge),
-              const SizedBox(height: 12),
-              // Every non-Home destination is supplied by the parent, so these
-              // buttons use the same indices as the navigation rail.
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  for (final shortcut in shortcuts)
-                    FilledButton.tonalIcon(
-                      onPressed: () => onSelectTab(shortcut.tabIndex),
-                      icon: Icon(shortcut.icon),
-                      label: Text(shortcut.label),
-                    ),
-                ],
-              ),
+              _ContactStatistics(store: store),
+              const SizedBox(height: 24),
+              _OrganizationStatistics(store: store),
               const SizedBox(height: 32),
-              // This final dashboard section sits below the shortcuts and
-              // updates whenever the shared CRM store changes.
               _ToCallTodayCard(store: store, onOpenContact: onOpenContact),
               const SizedBox(height: 16),
               _FutureCallsCard(store: store, onOpenContact: onOpenContact),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ContactStatistics extends StatelessWidget {
+  const _ContactStatistics({required this.store});
+
+  final CrmStore store;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: store,
+    builder: (context, _) {
+      final contacts = store.contacts;
+      final active = contacts
+          .where(
+            (contact) =>
+                contact.status == ContactStatus.active && !contact.isArchived,
+          )
+          .length;
+      final archived = contacts
+          .where(
+            (contact) =>
+                contact.status == ContactStatus.archived ||
+                contact.isArchived,
+          )
+          .length;
+
+      return _StatisticsSection(
+        title: 'Contacts',
+        statistics: [
+          _DashboardStatistic(
+            label: 'Total contacts',
+            value: contacts.length,
+            icon: Icons.people_alt_outlined,
+          ),
+          _DashboardStatistic(
+            label: 'Active contacts',
+            value: active,
+            icon: Icons.person_outline,
+          ),
+          _DashboardStatistic(
+            label: 'Archived contacts',
+            value: archived,
+            icon: Icons.archive_outlined,
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _OrganizationStatistics extends StatelessWidget {
+  const _OrganizationStatistics({required this.store});
+
+  final CrmStore store;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: store,
+    builder: (context, _) {
+      final organizations = store.organizations;
+      final archived = organizations
+          .where((organization) => organization.isArchived)
+          .length;
+
+      return _StatisticsSection(
+        title: 'Organizations',
+        statistics: [
+          _DashboardStatistic(
+            label: 'Total organizations',
+            value: organizations.length,
+            icon: Icons.business_outlined,
+          ),
+          _DashboardStatistic(
+            label: 'Active organizations',
+            value: organizations.length - archived,
+            icon: Icons.domain_outlined,
+          ),
+          _DashboardStatistic(
+            label: 'Archived organizations',
+            value: archived,
+            icon: Icons.archive_outlined,
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _DashboardStatistic {
+  const _DashboardStatistic({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final int value;
+  final IconData icon;
+}
+
+class _StatisticsSection extends StatelessWidget {
+  const _StatisticsSection({required this.title, required this.statistics});
+
+  final String title;
+  final List<_DashboardStatistic> statistics;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(title, style: textTheme.titleLarge),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 760
+                ? 3
+                : constraints.maxWidth >= 500
+                ? 2
+                : 1;
+            const spacing = 12.0;
+            final cardWidth =
+                (constraints.maxWidth - spacing * (columns - 1)) / columns;
+
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: [
+                for (final statistic in statistics)
+                  SizedBox(
+                    width: cardWidth,
+                    child: _StatisticCard(statistic: statistic),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _StatisticCard extends StatelessWidget {
+  const _StatisticCard({required this.statistic});
+
+  final _DashboardStatistic statistic;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: colors.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(statistic.icon, color: colors.onPrimaryContainer),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    statistic.label,
+                    style: textTheme.bodyMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    '${statistic.value}',
+                    style: textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -194,6 +355,10 @@ class _ToCallTodayCard extends StatelessWidget {
   String _contactDetails(Contact contact, Set<String> followUpReasons) {
     final organization = store.organization(contact.organizationId)?.name;
     return [
+      if (contact.militaryRank.trim().isNotEmpty)
+        contact.militaryRank.trim(),
+      if (contact.militaryBranch.trim().isNotEmpty)
+        contact.militaryBranch.trim(),
       if (contact.title.trim().isNotEmpty) contact.title.trim(),
       if (organization != null && organization.trim().isNotEmpty)
         organization.trim(),

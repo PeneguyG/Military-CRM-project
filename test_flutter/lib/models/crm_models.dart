@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 /// Contact lifecycle states shown in the app. Legacy database states are
 /// normalized to [archived] when records are loaded.
 enum ContactStatus { active, archived }
@@ -71,19 +74,58 @@ class Organization {
   );
 }
 
+class ChildRecord {
+  const ChildRecord({required this.name, this.age});
+
+  final String name;
+  final int? age;
+
+  Map<String, Object?> toMap() => {'name': name, 'age': age};
+
+  factory ChildRecord.fromMap(Map<String, Object?> map) {
+    final rawAge = map['age'];
+    return ChildRecord(
+      name: map['name'] as String? ?? '',
+      age: rawAge is int ? rawAge : int.tryParse(rawAge?.toString() ?? ''),
+    );
+  }
+
+  static List<ChildRecord> decodeMany(Object? encoded) {
+    if (encoded is! String || encoded.trim().isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! List) return const [];
+      return [
+        for (final item in decoded)
+          if (item is Map) ChildRecord.fromMap(Map<String, Object?>.from(item)),
+      ];
+    } on FormatException {
+      return const [];
+    } on TypeError {
+      return const [];
+    }
+  }
+}
+
 class Contact {
   const Contact({
     this.id,
     this.organizationId,
+    this.prefix = '',
     required this.firstName,
     required this.lastName,
+    this.suffix = '',
+    this.militaryBranch = '',
+    this.militaryRank = '',
     this.title = '',
     this.phone = '',
     this.email = '',
     this.address = '',
     this.spouseName = '',
     this.childrenInfo = '',
+    this.children = const [],
     this.photoPath,
+    this.photoBytes,
     this.notes = '',
     this.talkingPoints = '',
     ContactStatus status = ContactStatus.active,
@@ -93,8 +135,12 @@ class Contact {
            : ContactStatus.active,
        isArchived = status == ContactStatus.archived || isArchived;
   final int? id, organizationId;
-  final String firstName,
+  final String prefix,
+      firstName,
       lastName,
+      suffix,
+      militaryBranch,
+      militaryRank,
       title,
       phone,
       email,
@@ -104,21 +150,37 @@ class Contact {
       notes,
       talkingPoints;
   final String? photoPath;
+  final Uint8List? photoBytes;
+  final List<ChildRecord> children;
   final ContactStatus status;
   final bool isArchived;
-  String get fullName => '$firstName $lastName'.trim();
+  String get fullName =>
+      [
+        if (prefix.trim().isNotEmpty) prefix.trim(),
+        firstName.trim(),
+        lastName.trim(),
+      ].join(' ') +
+      (suffix.trim().isEmpty ? '' : ', ${suffix.trim()}');
   Map<String, Object?> toMap() => {
     'id': id,
     'organization_id': organizationId,
+    'prefix': prefix,
     'first_name': firstName,
     'last_name': lastName,
+    'suffix': suffix,
+    'military_branch': militaryBranch,
+    'military_rank': militaryRank,
     'title': title,
     'phone': phone,
     'email': email,
     'address': address,
     'spouse_name': spouseName,
     'children_info': childrenInfo,
+    'children_json': jsonEncode(
+      children.map((child) => child.toMap()).toList(),
+    ),
     'photo_path': photoPath,
+    'photo_blob': photoBytes,
     'notes': notes,
     'talking_points': talkingPoints,
     'status': status.name,
@@ -137,15 +199,21 @@ class Contact {
     return Contact(
       id: m['id'] as int?,
       organizationId: m['organization_id'] as int?,
+      prefix: m['prefix'] as String? ?? '',
       firstName: m['first_name'] as String,
       lastName: m['last_name'] as String,
+      suffix: m['suffix'] as String? ?? '',
+      militaryBranch: m['military_branch'] as String? ?? '',
+      militaryRank: m['military_rank'] as String? ?? '',
       title: m['title'] as String? ?? '',
       phone: m['phone'] as String? ?? '',
       email: m['email'] as String? ?? '',
       address: m['address'] as String? ?? '',
       spouseName: m['spouse_name'] as String? ?? '',
       childrenInfo: m['children_info'] as String? ?? '',
+      children: ChildRecord.decodeMany(m['children_json']),
       photoPath: m['photo_path'] as String?,
+      photoBytes: _readPhotoBytes(m['photo_blob']),
       notes: m['notes'] as String? ?? '',
       talkingPoints: m['talking_points'] as String? ?? '',
       status: isArchived ? ContactStatus.archived : ContactStatus.active,
@@ -155,15 +223,21 @@ class Contact {
   Contact copyWith({
     Object? id = _unset,
     Object? organizationId = _unset,
+    String? prefix,
     String? firstName,
     String? lastName,
+    String? suffix,
+    String? militaryBranch,
+    String? militaryRank,
     String? title,
     String? phone,
     String? email,
     String? address,
     String? spouseName,
     String? childrenInfo,
+    List<ChildRecord>? children,
     Object? photoPath = _unset,
+    Object? photoBytes = _unset,
     String? notes,
     String? talkingPoints,
     ContactStatus? status,
@@ -187,23 +261,37 @@ class Contact {
       organizationId: identical(organizationId, _unset)
           ? this.organizationId
           : organizationId as int?,
+      prefix: prefix ?? this.prefix,
       firstName: firstName ?? this.firstName,
       lastName: lastName ?? this.lastName,
+      suffix: suffix ?? this.suffix,
+      militaryBranch: militaryBranch ?? this.militaryBranch,
+      militaryRank: militaryRank ?? this.militaryRank,
       title: title ?? this.title,
       phone: phone ?? this.phone,
       email: email ?? this.email,
       address: address ?? this.address,
       spouseName: spouseName ?? this.spouseName,
       childrenInfo: childrenInfo ?? this.childrenInfo,
+      children: children ?? this.children,
       photoPath: identical(photoPath, _unset)
           ? this.photoPath
           : photoPath as String?,
+      photoBytes: identical(photoBytes, _unset)
+          ? this.photoBytes
+          : photoBytes as Uint8List?,
       notes: notes ?? this.notes,
       talkingPoints: talkingPoints ?? this.talkingPoints,
       status: nextStatus,
       isArchived: nextIsArchived,
     );
   }
+}
+
+Uint8List? _readPhotoBytes(Object? value) {
+  if (value is Uint8List) return value;
+  if (value is List<int>) return Uint8List.fromList(value);
+  return null;
 }
 
 class InteractionLog {

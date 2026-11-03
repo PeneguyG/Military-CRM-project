@@ -5,7 +5,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'crm_store.dart';
 import 'data/crm_database.dart';
-import 'pages/crm_widgets.dart';
 import 'pages/contacts_page.dart';
 import 'pages/organizations_page.dart';
 import 'pages/home_page.dart';
@@ -135,7 +134,9 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                         ? ThemeMode.light
                         : ThemeMode.dark,
                   ),
-                  onAutomaticTheme: () => setState(() => _override = null),
+                  onAutomaticThemeChanged: (enabled) => setState(
+                    () => _override = enabled ? null : mode,
+                  ),
                   onLock: () => setState(() => _isAuthenticated = false),
                 );
               },
@@ -262,7 +263,7 @@ class CrmHomePage extends StatefulWidget {
     required this.isDarkMode,
     required this.onToggleTheme,
     required this.automaticTheme,
-    required this.onAutomaticTheme,
+    required this.onAutomaticThemeChanged,
     required this.onLock,
   });
 
@@ -270,7 +271,7 @@ class CrmHomePage extends StatefulWidget {
   final bool automaticTheme;
   final CrmStore store;
   final VoidCallback onToggleTheme;
-  final VoidCallback onAutomaticTheme;
+  final ValueChanged<bool> onAutomaticThemeChanged;
   final VoidCallback onLock;
 
   @override
@@ -278,8 +279,8 @@ class CrmHomePage extends StatefulWidget {
 }
 
 class _CrmHomePageState extends State<CrmHomePage> {
-  // These ordered destinations are the shared source for the rail, app-bar
-  // title, Home shortcuts, and IndexedStack page routing.
+  // These ordered destinations are shared by the navigation rail and the
+  // IndexedStack page routing.
   static const List<_CrmDestination> _destinations = [
     _CrmDestination(
       label: 'Home',
@@ -313,8 +314,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
     ),
   ];
 
-  // The active index is the single navigation state used by every route
-  // control, so a rail selection and a Home shortcut open the same page.
+  // The active index is the navigation state used by the rail and page stack.
   int _tab = 0;
 
   // ContactsPage is recreated when a contact is opened from another section.
@@ -325,7 +325,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
 
   CrmStore get _store => widget.store;
 
-  /// Selects a destination from either the rail or a Home shortcut.
+  /// Selects a destination from the navigation rail.
   void _selectTab(int index) {
     setState(() => _tab = index);
   }
@@ -339,6 +339,24 @@ class _CrmHomePageState extends State<CrmHomePage> {
     });
   }
 
+  void _showDatabaseLocation() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Database location'),
+        content: SelectableText(
+          _store.databasePath ?? 'No persistent database is in use.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
@@ -347,68 +365,19 @@ class _CrmHomePageState extends State<CrmHomePage> {
       final extendedRail = constraints.maxWidth >= 1000;
 
       return Scaffold(
-        appBar: AppBar(
-          title: Text(_destinations[_tab].label),
-          actions: [
-            IconButton(
-              tooltip: widget.isDarkMode
-                  ? 'Switch to light mode'
-                  : 'Switch to dark mode',
-              onPressed: widget.onToggleTheme,
-              icon: Icon(
-                widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-              ),
-            ),
-            IconButton(
-              tooltip: widget.automaticTheme
-                  ? 'Automatic theme enabled (06:00–18:00 light)'
-                  : 'Use automatic time-based theme',
-              onPressed: widget.onAutomaticTheme,
-              icon: Icon(widget.automaticTheme ? Icons.schedule : Icons.update),
-            ),
-            IconButton(
-              tooltip: 'Lock app',
-              onPressed: widget.onLock,
-              icon: const Icon(Icons.lock_outline),
-            ),
-          ],
-        ),
         body: SafeArea(
           child: Column(
             children: [
-              // This banner continues to report whether records are saved in
-              // SQLite or supplied by an in-memory test store.
-              MaterialBanner(
-                content: Text(
-                  _store.databasePath == null
-                      ? 'Test data'
-                      : 'Saved locally in SQLite',
-                ),
-                actions: [
-                  if (_store.databasePath != null)
-                    IconButton(
-                      tooltip: 'Database location',
-                      icon: const Icon(Icons.storage),
-                      onPressed: () => showDialog<void>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Database location'),
-                          content: SelectableText(_store.databasePath!),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('Close'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  IconButton(
-                    tooltip: 'Refresh records',
-                    onPressed: () => runDatabaseAction(context, _store.reload),
-                    icon: const Icon(Icons.refresh),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: IconButton(
+                    tooltip: 'Lock app',
+                    onPressed: widget.onLock,
+                    icon: const Icon(Icons.lock_outline),
                   ),
-                ],
+                ),
               ),
               Expanded(
                 // Keep navigation on the left for desktop and compact windows.
@@ -416,22 +385,45 @@ class _CrmHomePageState extends State<CrmHomePage> {
                 // tab is selected.
                 child: Row(
                   children: [
-                    NavigationRail(
-                      extended: extendedRail,
-                      labelType: extendedRail
-                          ? null
-                          : NavigationRailLabelType.selected,
-                      groupAlignment: -1,
-                      selectedIndex: _tab,
-                      onDestinationSelected: _selectTab,
-                      destinations: [
-                        for (final destination in _destinations)
-                          NavigationRailDestination(
-                            icon: Icon(destination.icon),
-                            selectedIcon: Icon(destination.selectedIcon),
-                            label: Text(destination.label),
+                    SizedBox(
+                      // Row gives non-flex children unbounded width; keep the
+                      // rail and its pinned settings panel at a known width.
+                      width: extendedRail ? 256 : 72,
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: NavigationRail(
+                              minWidth: 72,
+                              minExtendedWidth: 256,
+                              extended: extendedRail,
+                              labelType: extendedRail
+                                  ? null
+                                  : NavigationRailLabelType.selected,
+                              groupAlignment: -1,
+                              scrollable: true,
+                              selectedIndex: _tab,
+                              onDestinationSelected: _selectTab,
+                              destinations: [
+                                for (final destination in _destinations)
+                                  NavigationRailDestination(
+                                    icon: Icon(destination.icon),
+                                    selectedIcon: Icon(destination.selectedIcon),
+                                    label: Text(destination.label),
+                                  ),
+                              ],
+                            ),
                           ),
-                      ],
+                          _NavigationSettings(
+                            extended: extendedRail,
+                            isDarkMode: widget.isDarkMode,
+                            automaticTheme: widget.automaticTheme,
+                            onToggleTheme: widget.onToggleTheme,
+                            onAutomaticThemeChanged:
+                                widget.onAutomaticThemeChanged,
+                            onDatabaseLocation: _showDatabaseLocation,
+                          ),
+                        ],
+                      ),
                     ),
                     const VerticalDivider(width: 1),
                     Expanded(
@@ -440,21 +432,6 @@ class _CrmHomePageState extends State<CrmHomePage> {
                         children: [
                           HomePage(
                             store: _store,
-                            shortcuts: [
-                              // Build one Home shortcut for every destination
-                              // after Home, using the same navigation indices.
-                              for (
-                                var index = 1;
-                                index < _destinations.length;
-                                index++
-                              )
-                                HomeShortcut(
-                                  tabIndex: index,
-                                  label: _destinations[index].label,
-                                  icon: _destinations[index].icon,
-                                ),
-                            ],
-                            onSelectTab: _selectTab,
                             onOpenContact: _openContact,
                           ),
                           ContactsPage(
@@ -487,6 +464,101 @@ class _CrmHomePageState extends State<CrmHomePage> {
       );
     },
   );
+}
+
+class _NavigationSettings extends StatelessWidget {
+  const _NavigationSettings({
+    required this.extended,
+    required this.isDarkMode,
+    required this.automaticTheme,
+    required this.onToggleTheme,
+    required this.onAutomaticThemeChanged,
+    required this.onDatabaseLocation,
+  });
+
+  final bool extended;
+  final bool isDarkMode;
+  final bool automaticTheme;
+  final VoidCallback onToggleTheme;
+  final ValueChanged<bool> onAutomaticThemeChanged;
+  final VoidCallback onDatabaseLocation;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    if (extended) {
+      return Padding(
+        padding: const EdgeInsets.all(8),
+        child: Material(
+          color: colors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Text(
+                  'Settings',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                title: const Text('Dark mode'),
+                value: isDarkMode,
+                onChanged: (_) => onToggleTheme(),
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                title: const Text('Automatic theme'),
+                subtitle: const Text('Light 06:00–18:00'),
+                value: automaticTheme,
+                onChanged: onAutomaticThemeChanged,
+              ),
+              ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                leading: const Icon(Icons.storage_outlined),
+                title: const Text('Database location'),
+                onTap: onDatabaseLocation,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(width: 36, child: Divider(height: 24)),
+          IconButton(
+            tooltip: isDarkMode ? 'Switch to light mode' : 'Switch to dark mode',
+            onPressed: onToggleTheme,
+            icon: Icon(isDarkMode ? Icons.light_mode : Icons.dark_mode),
+          ),
+          IconButton(
+            tooltip: automaticTheme
+                ? 'Turn off automatic theme'
+                : 'Turn on automatic theme',
+            onPressed: () => onAutomaticThemeChanged(!automaticTheme),
+            icon: Icon(automaticTheme ? Icons.schedule : Icons.update),
+          ),
+          IconButton(
+            tooltip: 'Database location',
+            onPressed: onDatabaseLocation,
+            icon: const Icon(Icons.storage_outlined),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Keeps a destination visibly routable while its full feature page is pending.

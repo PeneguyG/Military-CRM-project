@@ -203,8 +203,19 @@ class OrganizationDetail extends StatelessWidget {
             Card(
               child: ListTile(
                 leading: ContactPhoto(c, size: 40),
-                title: Text('${c.title} ${c.fullName}'.trim()),
-                subtitle: Wrap(spacing: 8, children: [StatusBadge(c.status)]),
+                title: Text(c.fullName),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (c.militaryRank.isNotEmpty || c.militaryBranch.isNotEmpty)
+                      Text([
+                        if (c.militaryRank.isNotEmpty) c.militaryRank,
+                        if (c.militaryBranch.isNotEmpty) c.militaryBranch,
+                      ].join(' · ')),
+                    if (c.title.isNotEmpty) Text(c.title),
+                    StatusBadge(c.status),
+                  ],
+                ),
                 onTap: () => onSelectContact(c),
               ),
             ),
