@@ -4,7 +4,8 @@ import '../crm_store.dart';
 import '../models/crm_models.dart';
 import '../phone_number.dart';
 import 'contacts_page.dart' show editContact;
-import 'crm_widgets.dart' show ContactPhoto, runDatabaseAction;
+import 'crm_widgets.dart'
+    show ContactPhoto, RecordStatusIndicator, runDatabaseAction;
 import 'organizations_page.dart' show editOrganization;
 
 /// Lists archived contacts and organizations in one place and lets users
@@ -129,8 +130,7 @@ class _ArchivedContactCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final details = [
-      if (contact.militaryRank.trim().isNotEmpty)
-        contact.militaryRank.trim(),
+      if (contact.militaryRank.trim().isNotEmpty) contact.militaryRank.trim(),
       if (contact.militaryBranch.trim().isNotEmpty)
         contact.militaryBranch.trim(),
       if (contact.title.trim().isNotEmpty) contact.title.trim(),
@@ -144,7 +144,19 @@ class _ArchivedContactCard extends StatelessWidget {
         children: [
           ListTile(
             leading: ContactPhoto(contact, size: 44),
-            title: Text(contact.fullName),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    contact.fullName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const RecordStatusIndicator(isActive: false),
+              ],
+            ),
             subtitle: Text(details.isEmpty ? 'Archived contact' : details),
             onTap: onEdit,
           ),
@@ -199,7 +211,19 @@ class _ArchivedOrganizationCard extends StatelessWidget {
         children: [
           ListTile(
             leading: const CircleAvatar(child: Icon(Icons.business_outlined)),
-            title: Text(organization.name),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    organization.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const RecordStatusIndicator(isActive: false),
+              ],
+            ),
             subtitle: Text(details.isEmpty ? 'Archived organization' : details),
             onTap: onEdit,
           ),

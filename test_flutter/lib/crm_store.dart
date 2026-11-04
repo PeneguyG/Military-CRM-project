@@ -9,12 +9,18 @@ class CrmStore extends ChangeNotifier {
     List<Organization> organizations = const [],
     List<Contact> contacts = const [],
     List<InteractionLog> interactions = const [],
+    List<ContactNote> contactNotes = const [],
+    List<ProfileTagDefinition> profileTags = const [],
   }) : _organizations = List.of(organizations),
        _contacts = List.of(contacts),
-       _interactions = List.of(interactions);
+       _interactions = List.of(interactions),
+       _contactNotes = List.of(contactNotes),
+       _profileTags = List.of(profileTags);
   final List<Organization> _organizations;
   final List<Contact> _contacts;
   final List<InteractionLog> _interactions;
+  final List<ContactNote> _contactNotes;
+  final List<ProfileTagDefinition> _profileTags;
   CrmDatabase? _database;
   Future<void> _pending = Future.value();
   bool _disposed = false;
@@ -34,6 +40,12 @@ class CrmStore extends ChangeNotifier {
     final interactions = snapshot['interactions']!
         .map(InteractionLog.fromMap)
         .toList();
+    final contactNotes = snapshot['contact_notes']!
+        .map(ContactNote.fromMap)
+        .toList();
+    final profileTags = snapshot['profile_tags']!
+        .map(ProfileTagDefinition.fromMap)
+        .toList();
     _organizations
       ..clear()
       ..addAll(organizations);
@@ -43,6 +55,12 @@ class CrmStore extends ChangeNotifier {
     _interactions
       ..clear()
       ..addAll(interactions);
+    _contactNotes
+      ..clear()
+      ..addAll(contactNotes);
+    _profileTags
+      ..clear()
+      ..addAll(profileTags);
     if (!_disposed) notifyListeners();
   }
 
@@ -84,6 +102,12 @@ class CrmStore extends ChangeNotifier {
   List<Organization> get organizations => List.unmodifiable(_organizations);
   List<Contact> get contacts => List.unmodifiable(_contacts);
   List<InteractionLog> get interactions => List.unmodifiable(_interactions);
+  List<ContactNote> get contactNotes => List.unmodifiable(_contactNotes);
+  List<ProfileTagDefinition> get profileTags => List.unmodifiable(_profileTags);
+  List<ContactNote> notesForContact(int contactId) => List.unmodifiable(
+    _contactNotes.where((note) => note.contactId == contactId).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+  );
   Organization? organization(int? id) {
     for (final item in _organizations) {
       if (item.id == id) return item;
@@ -152,6 +176,85 @@ class CrmStore extends ChangeNotifier {
     _interactions.add(
       item.copyWith(id: _nextId(_interactions.map((i) => i.id))),
     );
+    notifyListeners();
+  }
+
+  Future<void> addContactNote(ContactNote item) async {
+    if (contact(item.contactId) == null || item.text.trim().isEmpty) {
+      throw ArgumentError('A note needs an existing contact and text');
+    }
+    if (_database != null) {
+      await _persist(() => _database!.addContactNote(item));
+      return;
+    }
+    _contactNotes.add(
+      ContactNote(
+        id: _nextId(_contactNotes.map((note) => note.id)),
+        contactId: item.contactId,
+        text: item.text.trim(),
+        createdAt: item.createdAt,
+      ),
+    );
+    notifyListeners();
+  }
+
+  Future<void> saveProfileTag(ProfileTagDefinition item) async {
+    if (item.label.trim().isEmpty ||
+        ![
+          'preferred_contact',
+          'life_status',
+          'custom',
+        ].contains(item.category)) {
+      throw ArgumentError('Invalid profile tag');
+    }
+    if (_database != null) {
+      await _persist(() => _database!.saveProfileTag(item));
+      return;
+    }
+    if (item.category == 'custom' &&
+        _profileTags.any(
+          (tag) =>
+              tag.category == 'custom' &&
+              tag.label.toLowerCase() == item.label.trim().toLowerCase() &&
+              tag.id != item.id,
+        )) {
+      throw ArgumentError('A custom tag with that name already exists');
+    }
+    final index = _profileTags.indexWhere(
+      (tag) => tag.id == item.id && item.id != null,
+    );
+    final saved = ProfileTagDefinition(
+      id: item.id ?? _nextId(_profileTags.map((tag) => tag.id)),
+      category: item.category,
+      value: item.value,
+      label: item.label.trim(),
+      colorValue: item.colorValue,
+      isBuiltIn: item.isBuiltIn,
+    );
+    if (index < 0) {
+      _profileTags.add(saved);
+    } else {
+      _profileTags[index] = saved;
+    }
+    notifyListeners();
+  }
+
+  Future<void> deleteProfileTag(int id) async {
+    if (_database != null) {
+      await _persist(() => _database!.deleteProfileTag(id));
+      return;
+    }
+    _profileTags.removeWhere((tag) => tag.id == id && !tag.isBuiltIn);
+    for (var index = 0; index < _contacts.length; index++) {
+      final contact = _contacts[index];
+      if (contact.customTagIds.contains(id)) {
+        _contacts[index] = contact.copyWith(
+          customTagIds: contact.customTagIds
+              .where((tagId) => tagId != id)
+              .toList(),
+        );
+      }
+    }
     notifyListeners();
   }
 }

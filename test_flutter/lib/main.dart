@@ -9,6 +9,7 @@ import 'pages/contacts_page.dart';
 import 'pages/organizations_page.dart';
 import 'pages/home_page.dart';
 import 'pages/archive_page.dart';
+import 'pages/settings_page.dart';
 import 'models/crm_models.dart';
 
 void main() => runApp(const MilitaryCrmApp());
@@ -134,9 +135,8 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                         ? ThemeMode.light
                         : ThemeMode.dark,
                   ),
-                  onAutomaticThemeChanged: (enabled) => setState(
-                    () => _override = enabled ? null : mode,
-                  ),
+                  onAutomaticThemeChanged: (enabled) =>
+                      setState(() => _override = enabled ? null : mode),
                   onLock: () => setState(() => _isAuthenticated = false),
                 );
               },
@@ -279,6 +279,7 @@ class CrmHomePage extends StatefulWidget {
 }
 
 class _CrmHomePageState extends State<CrmHomePage> {
+  static const int _settingsTab = 6;
   // These ordered destinations are shared by the navigation rail and the
   // IndexedStack page routing.
   static const List<_CrmDestination> _destinations = [
@@ -387,7 +388,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
                   children: [
                     SizedBox(
                       // Row gives non-flex children unbounded width; keep the
-                      // rail and its pinned settings panel at a known width.
+                      // rail and bottom Settings tab at a known width.
                       width: extendedRail ? 256 : 72,
                       child: Column(
                         children: [
@@ -401,26 +402,24 @@ class _CrmHomePageState extends State<CrmHomePage> {
                                   : NavigationRailLabelType.selected,
                               groupAlignment: -1,
                               scrollable: true,
-                              selectedIndex: _tab,
+                              selectedIndex: _tab == _settingsTab ? null : _tab,
                               onDestinationSelected: _selectTab,
                               destinations: [
                                 for (final destination in _destinations)
                                   NavigationRailDestination(
                                     icon: Icon(destination.icon),
-                                    selectedIcon: Icon(destination.selectedIcon),
+                                    selectedIcon: Icon(
+                                      destination.selectedIcon,
+                                    ),
                                     label: Text(destination.label),
                                   ),
                               ],
                             ),
                           ),
-                          _NavigationSettings(
+                          _SettingsNavigationButton(
                             extended: extendedRail,
-                            isDarkMode: widget.isDarkMode,
-                            automaticTheme: widget.automaticTheme,
-                            onToggleTheme: widget.onToggleTheme,
-                            onAutomaticThemeChanged:
-                                widget.onAutomaticThemeChanged,
-                            onDatabaseLocation: _showDatabaseLocation,
+                            selected: _tab == _settingsTab,
+                            onPressed: () => _selectTab(_settingsTab),
                           ),
                         ],
                       ),
@@ -430,10 +429,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
                       child: IndexedStack(
                         index: _tab,
                         children: [
-                          HomePage(
-                            store: _store,
-                            onOpenContact: _openContact,
-                          ),
+                          HomePage(store: _store, onOpenContact: _openContact),
                           ContactsPage(
                             key: ValueKey(_contactNavigation),
                             store: _store,
@@ -452,6 +448,15 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             icon: _destinations[4].icon,
                           ),
                           ArchivePage(store: _store),
+                          SettingsPage(
+                            store: _store,
+                            isDarkMode: widget.isDarkMode,
+                            automaticTheme: widget.automaticTheme,
+                            onToggleTheme: widget.onToggleTheme,
+                            onAutomaticThemeChanged:
+                                widget.onAutomaticThemeChanged,
+                            onDatabaseLocation: _showDatabaseLocation,
+                          ),
                         ],
                       ),
                     ),
@@ -466,97 +471,46 @@ class _CrmHomePageState extends State<CrmHomePage> {
   );
 }
 
-class _NavigationSettings extends StatelessWidget {
-  const _NavigationSettings({
+class _SettingsNavigationButton extends StatelessWidget {
+  const _SettingsNavigationButton({
     required this.extended,
-    required this.isDarkMode,
-    required this.automaticTheme,
-    required this.onToggleTheme,
-    required this.onAutomaticThemeChanged,
-    required this.onDatabaseLocation,
+    required this.selected,
+    required this.onPressed,
   });
 
   final bool extended;
-  final bool isDarkMode;
-  final bool automaticTheme;
-  final VoidCallback onToggleTheme;
-  final ValueChanged<bool> onAutomaticThemeChanged;
-  final VoidCallback onDatabaseLocation;
+  final bool selected;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    if (extended) {
-      return Padding(
-        padding: const EdgeInsets.all(8),
-        child: Material(
-          color: colors.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(16),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Text(
-                  'Settings',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              SwitchListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                title: const Text('Dark mode'),
-                value: isDarkMode,
-                onChanged: (_) => onToggleTheme(),
-              ),
-              SwitchListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                title: const Text('Automatic theme'),
-                subtitle: const Text('Light 06:00–18:00'),
-                value: automaticTheme,
-                onChanged: onAutomaticThemeChanged,
-              ),
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                leading: const Icon(Icons.storage_outlined),
-                title: const Text('Database location'),
-                onTap: onDatabaseLocation,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(width: 36, child: Divider(height: 24)),
-          IconButton(
-            tooltip: isDarkMode ? 'Switch to light mode' : 'Switch to dark mode',
-            onPressed: onToggleTheme,
-            icon: Icon(isDarkMode ? Icons.light_mode : Icons.dark_mode),
-          ),
-          IconButton(
-            tooltip: automaticTheme
-                ? 'Turn off automatic theme'
-                : 'Turn on automatic theme',
-            onPressed: () => onAutomaticThemeChanged(!automaticTheme),
-            icon: Icon(automaticTheme ? Icons.schedule : Icons.update),
-          ),
-          IconButton(
-            tooltip: 'Database location',
-            onPressed: onDatabaseLocation,
-            icon: const Icon(Icons.storage_outlined),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+      child: extended
+          ? Material(
+              color: selected ? colors.secondaryContainer : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              child: ListTile(
+                leading: Icon(
+                  selected ? Icons.settings : Icons.settings_outlined,
+                ),
+                title: const Text('Settings'),
+                selected: selected,
+                onTap: onPressed,
+              ),
+            )
+          : IconButton(
+              tooltip: 'Settings',
+              onPressed: onPressed,
+              style: selected
+                  ? IconButton.styleFrom(
+                      backgroundColor: colors.secondaryContainer,
+                      foregroundColor: colors.onSecondaryContainer,
+                    )
+                  : null,
+              icon: Icon(selected ? Icons.settings : Icons.settings_outlined),
+            ),
     );
   }
 }

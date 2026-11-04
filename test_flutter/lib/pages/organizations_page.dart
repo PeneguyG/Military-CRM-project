@@ -86,7 +86,19 @@ class _OrganizationsPageState extends State<OrganizationsPage> {
                     final o = items[index];
                     return ListTile(
                       selected: o.id == _selected,
-                      title: Text(o.name),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              o.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          RecordStatusIndicator(isActive: !o.isArchived),
+                        ],
+                      ),
                       subtitle: Text(
                         [
                           o.industry,
@@ -158,7 +170,18 @@ class OrganizationDetail extends StatelessWidget {
       return ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Text(o.name, style: Theme.of(context).textTheme.headlineMedium),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  o.name,
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+              ),
+              const SizedBox(width: 12),
+              RecordStatusIndicator(isActive: !o.isArchived),
+            ],
+          ),
           Text(o.industry),
           Wrap(
             spacing: 8,
@@ -178,15 +201,17 @@ class OrganizationDetail extends StatelessWidget {
               ),
             ],
           ),
-          InfoCard('Address / Location', o.address),
           if (o.phone.isNotEmpty)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.phone),
-              title: Text(formatPhoneForDisplay(o.phone)),
-              subtitle: const Text('Call or text'),
-              onTap: () => phoneAction(context, o.phone),
+            InfoCard(
+              'Phone',
+              formatPhoneForDisplay(o.phone),
+              footer: OutlinedButton.icon(
+                onPressed: () => phoneAction(context, o.phone),
+                icon: const Icon(Icons.phone_outlined),
+                label: const Text('Call or text'),
+              ),
             ),
+          InfoCard('Address / Location', o.address),
           InfoCard('Email', o.email),
           InfoCard('Notes', o.notes),
           const SizedBox(height: 16),
@@ -203,17 +228,31 @@ class OrganizationDetail extends StatelessWidget {
             Card(
               child: ListTile(
                 leading: ContactPhoto(c, size: 40),
-                title: Text(c.fullName),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        c.fullName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    RecordStatusIndicator(isActive: !c.isArchived),
+                  ],
+                ),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (c.militaryRank.isNotEmpty || c.militaryBranch.isNotEmpty)
-                      Text([
-                        if (c.militaryRank.isNotEmpty) c.militaryRank,
-                        if (c.militaryBranch.isNotEmpty) c.militaryBranch,
-                      ].join(' · ')),
+                    if (c.militaryRank.isNotEmpty ||
+                        c.militaryBranch.isNotEmpty)
+                      Text(
+                        [
+                          if (c.militaryRank.isNotEmpty) c.militaryRank,
+                          if (c.militaryBranch.isNotEmpty) c.militaryBranch,
+                        ].join(' · '),
+                      ),
                     if (c.title.isNotEmpty) Text(c.title),
-                    StatusBadge(c.status),
                   ],
                 ),
                 onTap: () => onSelectContact(c),

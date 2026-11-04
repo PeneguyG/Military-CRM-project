@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'package:sqlite3/sqlite3.dart';
@@ -18,6 +19,12 @@ class CrmDatabase {
       _run('organization', item.toMap());
   Future<DatabaseSnapshot> saveContact(Contact item) =>
       _run('contact', item.toMap());
+  Future<DatabaseSnapshot> addContactNote(ContactNote item) =>
+      _run('contactNote', item.toMap());
+  Future<DatabaseSnapshot> saveProfileTag(ProfileTagDefinition item) =>
+      _run('profileTag', item.toMap());
+  Future<DatabaseSnapshot> deleteProfileTag(int id) =>
+      _run('deleteProfileTag', {'id': id});
   Future<DatabaseSnapshot> logInteraction(InteractionLog item) =>
       _run('interaction', item.toMap());
   Future<DatabaseSnapshot> archiveOrganization(int id, bool archived) =>
@@ -60,6 +67,18 @@ DatabaseSnapshot _execute(
         _saveOrganization(db, data);
       case 'contact':
         _saveContact(db, data);
+      case 'contactNote':
+        _insert(db, 'contact_notes', {
+          'contact_id': data['contact_id'],
+          'note_text': data['note_text'],
+          'created_at': DateTime.parse(
+            data['created_at'] as String,
+          ).toUtc().toIso8601String(),
+        });
+      case 'profileTag':
+        _saveProfileTag(db, data);
+      case 'deleteProfileTag':
+        _deleteProfileTag(db, data['id'] as int);
       case 'interaction':
         final followUp = data['follow_up_date'] as String?;
         _insert(db, 'interactions', {
@@ -77,6 +96,7 @@ DatabaseSnapshot _execute(
           'summary': data['summary'],
           'follow_up_required': followUp == null ? 0 : 1,
           'follow_up_date': followUp?.substring(0, 10),
+          'follow_up_time': data['follow_up_time'],
           'follow_up_reason': data['follow_up_reason'] ?? '',
         });
       case 'archiveOrganization':
@@ -121,7 +141,7 @@ void _migrate(Database db) {
       'SELECT version FROM crm_app_migrations ORDER BY version DESC',
     );
     var version = versions.isEmpty ? 0 : versions.first['version'] as int;
-    if (version > 4)
+    if (version > 7)
       throw StateError('This database requires a newer CRM application.');
     if (version == 0) {
       db.execute('''
@@ -163,6 +183,57 @@ void _migrate(Database db) {
       db.execute('''
         ALTER TABLE contacts ADD COLUMN children_json TEXT;
         INSERT INTO crm_app_migrations(version) VALUES(4);
+      ''');
+      version = 4;
+    }
+    if (version < 5) {
+      db.execute('''
+        ALTER TABLE contacts ADD COLUMN preferred_contact_method TEXT NOT NULL DEFAULT '';
+        ALTER TABLE contacts ADD COLUMN life_status TEXT NOT NULL DEFAULT 'alive' CHECK(life_status IN ('alive','deceased'));
+        CREATE TABLE contact_notes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+          note_text TEXT NOT NULL CHECK(length(trim(note_text)) > 0),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_contact_notes_contact_created ON contact_notes(contact_id, created_at DESC, id DESC);
+        UPDATE contacts SET life_status='deceased' WHERE status='deceased';
+        UPDATE contacts SET status='active' WHERE status='deceased' AND is_archived=0;
+        INSERT INTO contact_notes(contact_id, note_text)
+          SELECT id, general_notes FROM contacts
+          WHERE general_notes IS NOT NULL AND length(trim(general_notes)) > 0;
+        INSERT INTO crm_app_migrations(version) VALUES(5);
+      ''');
+      version = 5;
+    }
+    if (version < 6) {
+      db.execute('''
+        ALTER TABLE contacts ADD COLUMN custom_tags_json TEXT NOT NULL DEFAULT '[]';
+        CREATE TABLE profile_tag_definitions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          category TEXT NOT NULL CHECK(category IN ('preferred_contact','life_status','custom')),
+          value TEXT NOT NULL,
+          label TEXT NOT NULL CHECK(length(trim(label)) > 0),
+          color_value INTEGER NOT NULL,
+          is_builtin INTEGER NOT NULL DEFAULT 0 CHECK(is_builtin IN (0,1)),
+          UNIQUE(category, value),
+          UNIQUE(category, label)
+        );
+        INSERT INTO profile_tag_definitions(category,value,label,color_value,is_builtin) VALUES
+          ('preferred_contact','Call','Call',0xFF1565C0,1),
+          ('preferred_contact','Text','Text',0xFF6A1B9A,1),
+          ('preferred_contact','Email','Email',0xFF00796B,1),
+          ('preferred_contact','In person','In person',0xFFB45309,1),
+          ('life_status','alive','Alive',0xFF2E7D32,1),
+          ('life_status','deceased','Deceased',0xFF616161,1);
+        INSERT INTO crm_app_migrations(version) VALUES(6);
+      ''');
+      version = 6;
+    }
+    if (version < 7) {
+      db.execute('''
+        ALTER TABLE interactions ADD COLUMN follow_up_time TEXT;
+        INSERT INTO crm_app_migrations(version) VALUES(7);
       ''');
     }
     db.execute('COMMIT;');
@@ -222,10 +293,19 @@ DatabaseSnapshot _snapshot(Database db) => {
               : r['interaction_type'] ?? 'Call',
           'summary': r['summary']?.toString() ?? '',
           'follow_up_date': r['follow_up_date'],
+          'follow_up_time': r['follow_up_time'],
           'follow_up_reason': r['follow_up_reason']?.toString() ?? '',
           'follow_up_completed': r['follow_up_completed'],
         };
       })
+      .toList(),
+  'contact_notes': db
+      .select('SELECT * FROM contact_notes ORDER BY created_at DESC, id DESC')
+      .map((r) => Map<String, Object?>.from(r))
+      .toList(),
+  'profile_tags': db
+      .select('SELECT * FROM profile_tag_definitions ORDER BY category, id')
+      .map((r) => Map<String, Object?>.from(r))
       .toList(),
 };
 
@@ -263,6 +343,9 @@ void _saveContact(Database db, Map<String, Object?> m) {
     'suffix': 'suffix',
     'military_branch': 'military_branch',
     'military_rank': 'military_rank',
+    'preferred_contact_method': 'preferred_contact_method',
+    'life_status': 'life_status',
+    'custom_tags_json': 'custom_tags_json',
     'title': 'rank_or_title',
     'phone': 'primary_phone',
     'email': 'email',
@@ -305,6 +388,42 @@ void _saveContact(Database db, Map<String, Object?> m) {
   } else {
     _update(db, 'contacts', id, values);
   }
+}
+
+void _saveProfileTag(Database db, Map<String, Object?> data) {
+  final values = <String, Object?>{
+    'category': data['category'],
+    'value': data['value'],
+    'label': data['label'],
+    'color_value': data['color_value'],
+    'is_builtin': data['is_builtin'] ?? 0,
+  };
+  final id = data['id'] as int?;
+  if (id == null) {
+    _insert(db, 'profile_tag_definitions', values);
+  } else {
+    _update(db, 'profile_tag_definitions', id, values);
+  }
+}
+
+void _deleteProfileTag(Database db, int id) {
+  final definitions = db.select(
+    'SELECT category FROM profile_tag_definitions WHERE id=? AND is_builtin=0',
+    [id],
+  );
+  if (definitions.isEmpty) return;
+  final contacts = db.select('SELECT id, custom_tags_json FROM contacts');
+  for (final contact in contacts) {
+    final encoded = contact['custom_tags_json']?.toString() ?? '[]';
+    final decoded = jsonDecode(encoded);
+    if (decoded is List && decoded.contains(id)) {
+      db.execute('UPDATE contacts SET custom_tags_json=? WHERE id=?', [
+        jsonEncode(decoded.where((value) => value != id).toList()),
+        contact['id'],
+      ]);
+    }
+  }
+  db.execute('DELETE FROM profile_tag_definitions WHERE id=?', [id]);
 }
 
 bool _sameContactValue(String key, Object? first, Object? second) {

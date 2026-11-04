@@ -51,6 +51,31 @@ class StatusBadge extends StatelessWidget {
   }
 }
 
+class RecordStatusIndicator extends StatelessWidget {
+  const RecordStatusIndicator({super.key, required this.isActive});
+
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive ? const Color(0xFF2E7D32) : Colors.grey.shade700;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.circle, size: 9, color: color),
+        const SizedBox(width: 6),
+        Text(
+          isActive ? 'Active' : 'Archived',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class ContactPhoto extends StatelessWidget {
   const ContactPhoto(this.contact, {super.key, this.size = 56});
   final Contact contact;
@@ -88,8 +113,9 @@ class ContactPhoto extends StatelessWidget {
 }
 
 class InfoCard extends StatelessWidget {
-  const InfoCard(this.title, this.text, {super.key});
+  const InfoCard(this.title, this.text, {super.key, this.footer});
   final String title, text;
+  final Widget? footer;
   @override
   Widget build(BuildContext context) => Card(
     child: Padding(
@@ -100,10 +126,65 @@ class InfoCard extends StatelessWidget {
           Text(title, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           SelectableText(text.isEmpty ? 'None recorded' : text),
+          if (footer != null) ...[const SizedBox(height: 8), footer!],
         ],
       ),
     ),
   );
+}
+
+Color preferredContactColor(String method) => switch (method.toLowerCase()) {
+  'call' => const Color(0xFF1565C0),
+  'text' => const Color(0xFF6A1B9A),
+  'email' => const Color(0xFF00796B),
+  'in person' => const Color(0xFFB45309),
+  _ => const Color(0xFF616161),
+};
+
+Color lifeStatusColor(String status) =>
+    status == 'deceased' ? const Color(0xFF616161) : const Color(0xFF2E7D32);
+
+class ContactProfileTag extends StatelessWidget {
+  const ContactProfileTag({
+    super.key,
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      border: Border.all(color: color.withValues(alpha: 0.42)),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
+    ),
+  );
+}
+
+String formatFollowUpTime(BuildContext context, String? value) {
+  if (value == null) return 'Time not set';
+  final parts = value.split(':');
+  if (parts.length != 2) return 'Time not set';
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null || minute == null || hour > 23 || minute > 59) {
+    return 'Time not set';
+  }
+  return TimeOfDay(hour: hour, minute: minute).format(context);
 }
 
 Future<String?> phoneAction(BuildContext context, String phone) async {
@@ -155,6 +236,7 @@ class RecordForm extends StatefulWidget {
     required this.values,
     required this.fields,
     this.dropdownFields = const {},
+    this.tagDefinitions = const [],
     this.organizations,
     this.contactStatus,
     this.organizationId,
@@ -165,6 +247,7 @@ class RecordForm extends StatefulWidget {
   final Map<String, Object?> values;
   final Map<String, String> fields;
   final Map<String, List<String>> dropdownFields;
+  final List<ProfileTagDefinition> tagDefinitions;
   final List<Organization>? organizations;
   final ContactStatus? contactStatus;
   final int? organizationId;
@@ -183,7 +266,8 @@ class _RecordFormState extends State<RecordForm> {
       (key) =>
           !widget.dropdownFields.containsKey(key) &&
           key != 'children_json' &&
-          key != 'photo_blob',
+          key != 'photo_blob' &&
+          key != 'custom_tags_json',
     ))
       key: TextEditingController(
         text: key == 'phone'
@@ -200,6 +284,9 @@ class _RecordFormState extends State<RecordForm> {
   late List<ChildRecord> _children = ChildRecord.decodeMany(
     widget.values['children_json'],
   );
+  late List<int> _selectedCustomTagIds = decodeIntList(
+    widget.values['custom_tags_json'],
+  ).where((id) => widget.tagDefinitions.any((tag) => tag.id == id)).toList();
   late Uint8List? _photoBytes = _readPhotoBytes(widget.values['photo_blob']);
   late String? _photoPath = widget.values['photo_path'] as String?;
   @override
@@ -218,6 +305,7 @@ class _RecordFormState extends State<RecordForm> {
       );
     }
     if (entry.key == 'photo_blob') return _photoField(entry.value);
+    if (entry.key == 'custom_tags_json') return _customTagsField(entry.value);
 
     final options = widget.dropdownFields[entry.key];
     if (options != null) {
@@ -239,7 +327,7 @@ class _RecordFormState extends State<RecordForm> {
             DropdownMenuItem(
               value: option,
               child: Text(
-                option.isEmpty ? 'None' : option,
+                _dropdownOptionLabel(entry.key, option),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -289,6 +377,57 @@ class _RecordFormState extends State<RecordForm> {
         }
         return null;
       },
+    );
+  }
+
+  String _dropdownOptionLabel(String field, String value) {
+    final category = switch (field) {
+      'preferred_contact_method' => 'preferred_contact',
+      'life_status' => 'life_status',
+      _ => null,
+    };
+    if (category != null) {
+      final definition = widget.tagDefinitions
+          .where((tag) => tag.category == category && tag.value == value)
+          .firstOrNull;
+      if (definition != null) return definition.label;
+      if (field == 'life_status' && value == 'alive') return 'Alive';
+      if (field == 'life_status' && value == 'deceased') return 'Deceased';
+    }
+    return value.isEmpty ? 'None' : value;
+  }
+
+  Widget _customTagsField(String title) {
+    final availableTags = widget.tagDefinitions
+        .where((tag) => tag.id != null)
+        .toList();
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: title,
+        border: const OutlineInputBorder(),
+      ),
+      child: availableTags.isEmpty
+          ? const Text('No tags have been configured in Settings.')
+          : Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final tag in availableTags)
+                  FilterChip(
+                    label: Text(tag.label),
+                    selected: _selectedCustomTagIds.contains(tag.id),
+                    selectedColor: Color(tag.colorValue).withValues(alpha: 0.2),
+                    checkmarkColor: Color(tag.colorValue),
+                    onSelected: (selected) => setState(() {
+                      if (selected) {
+                        _selectedCustomTagIds.add(tag.id!);
+                      } else {
+                        _selectedCustomTagIds.remove(tag.id);
+                      }
+                    }),
+                  ),
+              ],
+            ),
     );
   }
 
@@ -474,6 +613,9 @@ class _RecordFormState extends State<RecordForm> {
                     result['children_json'] = jsonEncode(
                       _children.map((child) => child.toMap()).toList(),
                     );
+                    result['custom_tags_json'] = jsonEncode(
+                      _selectedCustomTagIds,
+                    );
                     result['photo_blob'] = _photoBytes;
                     result['photo_path'] = _photoPath;
                   }
@@ -645,6 +787,7 @@ class _InteractionFormState extends State<InteractionForm> {
   final _followUpReason = TextEditingController();
   late String _type = widget.initialType;
   DateTime? _followUp;
+  TimeOfDay? _followUpTime;
   @override
   void dispose() {
     _summary.dispose();
@@ -692,26 +835,53 @@ class _InteractionFormState extends State<InteractionForm> {
                       v == null || v.trim().isEmpty ? 'Enter a summary' : null,
                 ),
                 const SizedBox(height: 16),
-                TextButton.icon(
-                  icon: const Icon(Icons.event),
-                  label: Text(
-                    _followUp == null
-                        ? 'Set optional follow-up date'
-                        : MaterialLocalizations.of(
-                            context,
-                          ).formatMediumDate(_followUp!),
-                  ),
-                  onPressed: () async {
-                    final now = DateUtils.dateOnly(DateTime.now());
-                    final date = await showDatePicker(
-                      context: context,
-                      initialDate: _followUp ?? now,
-                      firstDate: now,
-                      lastDate: DateTime(now.year + 20),
-                    );
-                    if (mounted && date != null)
-                      setState(() => _followUp = date);
-                  },
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    TextButton.icon(
+                      icon: const Icon(Icons.event),
+                      label: Text(
+                        _followUp == null
+                            ? 'Set optional follow-up date'
+                            : MaterialLocalizations.of(
+                                context,
+                              ).formatMediumDate(_followUp!),
+                      ),
+                      onPressed: () async {
+                        final now = DateUtils.dateOnly(DateTime.now());
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: _followUp ?? now,
+                          firstDate: now,
+                          lastDate: DateTime(now.year + 20),
+                        );
+                        if (mounted && date != null) {
+                          setState(() {
+                            _followUp = date;
+                            _followUpTime ??= const TimeOfDay(
+                              hour: 9,
+                              minute: 0,
+                            );
+                          });
+                        }
+                      },
+                    ),
+                    if (_followUp != null)
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.schedule),
+                        label: Text(_followUpTime!.format(context)),
+                        onPressed: () async {
+                          final time = await showTimePicker(
+                            context: context,
+                            initialTime: _followUpTime!,
+                          );
+                          if (mounted && time != null) {
+                            setState(() => _followUpTime = time);
+                          }
+                        },
+                      ),
+                  ],
                 ),
                 if (_followUp != null) ...[
                   const SizedBox(height: 8),
@@ -739,6 +909,7 @@ class _InteractionFormState extends State<InteractionForm> {
                   TextButton(
                     onPressed: () => setState(() {
                       _followUp = null;
+                      _followUpTime = null;
                       _followUpReason.clear();
                     }),
                     child: const Text('Clear follow-up'),
@@ -763,6 +934,9 @@ class _InteractionFormState extends State<InteractionForm> {
                     'type': _type,
                     'summary': _summary.text.trim(),
                     'followUp': _followUp,
+                    'followUpTime': _followUp == null
+                        ? null
+                        : '${_followUpTime!.hour.toString().padLeft(2, '0')}:${_followUpTime!.minute.toString().padLeft(2, '0')}',
                     'followUpReason': _followUp == null
                         ? ''
                         : _followUpReason.text.trim(),

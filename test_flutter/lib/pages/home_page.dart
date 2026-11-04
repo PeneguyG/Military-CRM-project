@@ -7,11 +7,7 @@ import 'crm_widgets.dart';
 
 /// Dashboard shown on the Home tab, with CRM statistics and today's call list.
 class HomePage extends StatelessWidget {
-  const HomePage({
-    super.key,
-    required this.store,
-    required this.onOpenContact,
-  });
+  const HomePage({super.key, required this.store, required this.onOpenContact});
 
   final CrmStore store;
   final ValueChanged<Contact> onOpenContact;
@@ -36,9 +32,7 @@ class HomePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              _ContactStatistics(store: store),
-              const SizedBox(height: 24),
-              _OrganizationStatistics(store: store),
+              _DashboardStatistics(store: store),
               const SizedBox(height: 32),
               _ToCallTodayCard(store: store, onOpenContact: onOpenContact),
               const SizedBox(height: 16),
@@ -51,8 +45,8 @@ class HomePage extends StatelessWidget {
   }
 }
 
-class _ContactStatistics extends StatelessWidget {
-  const _ContactStatistics({required this.store});
+class _DashboardStatistics extends StatelessWidget {
+  const _DashboardStatistics({required this.store});
 
   final CrmStore store;
 
@@ -60,76 +54,30 @@ class _ContactStatistics extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: store,
     builder: (context, _) {
-      final contacts = store.contacts;
-      final active = contacts
-          .where(
-            (contact) =>
-                contact.status == ContactStatus.active && !contact.isArchived,
-          )
-          .length;
-      final archived = contacts
-          .where(
-            (contact) =>
-                contact.status == ContactStatus.archived ||
-                contact.isArchived,
-          )
-          .length;
+      final now = DateTime.now();
+      final cutoff = now.subtract(const Duration(days: 30));
+      final recentInteractions = store.interactions.where((interaction) {
+        final date = interaction.date.toLocal();
+        return !date.isBefore(cutoff) && !date.isAfter(now);
+      }).length;
 
       return _StatisticsSection(
-        title: 'Contacts',
+        title: 'Overview',
         statistics: [
           _DashboardStatistic(
-            label: 'Total contacts',
-            value: contacts.length,
+            label: 'Contacts',
+            value: store.contacts.length,
             icon: Icons.people_alt_outlined,
           ),
           _DashboardStatistic(
-            label: 'Active contacts',
-            value: active,
-            icon: Icons.person_outline,
-          ),
-          _DashboardStatistic(
-            label: 'Archived contacts',
-            value: archived,
-            icon: Icons.archive_outlined,
-          ),
-        ],
-      );
-    },
-  );
-}
-
-class _OrganizationStatistics extends StatelessWidget {
-  const _OrganizationStatistics({required this.store});
-
-  final CrmStore store;
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: store,
-    builder: (context, _) {
-      final organizations = store.organizations;
-      final archived = organizations
-          .where((organization) => organization.isArchived)
-          .length;
-
-      return _StatisticsSection(
-        title: 'Organizations',
-        statistics: [
-          _DashboardStatistic(
-            label: 'Total organizations',
-            value: organizations.length,
+            label: 'Organizations',
+            value: store.organizations.length,
             icon: Icons.business_outlined,
           ),
           _DashboardStatistic(
-            label: 'Active organizations',
-            value: organizations.length - archived,
-            icon: Icons.domain_outlined,
-          ),
-          _DashboardStatistic(
-            label: 'Archived organizations',
-            value: archived,
-            icon: Icons.archive_outlined,
+            label: 'Interactions · last 30 days',
+            value: recentInteractions,
+            icon: Icons.forum_outlined,
           ),
         ],
       );
@@ -269,9 +217,10 @@ class _ToCallTodayCard extends StatelessWidget {
           continue;
         }
         final reason = interaction.followUpReason.trim();
+        final time = formatFollowUpTime(context, interaction.followUpTime);
         dueReasonsByContact
             .putIfAbsent(interaction.contactId, () => <String>{})
-            .add(reason.isEmpty ? 'Reason not specified' : reason);
+            .add('$time · ${reason.isEmpty ? 'Reason not specified' : reason}');
       }
       final dueContactIds = dueReasonsByContact.keys.toSet();
 
@@ -355,8 +304,7 @@ class _ToCallTodayCard extends StatelessWidget {
   String _contactDetails(Contact contact, Set<String> followUpReasons) {
     final organization = store.organization(contact.organizationId)?.name;
     return [
-      if (contact.militaryRank.trim().isNotEmpty)
-        contact.militaryRank.trim(),
+      if (contact.militaryRank.trim().isNotEmpty) contact.militaryRank.trim(),
       if (contact.militaryBranch.trim().isNotEmpty)
         contact.militaryBranch.trim(),
       if (contact.title.trim().isNotEmpty) contact.title.trim(),
@@ -421,7 +369,13 @@ class _FutureCallsCard extends StatelessWidget {
           ),
         );
       }
-      futureCalls.sort((a, b) => a.date.compareTo(b.date));
+      futureCalls.sort((a, b) {
+        final byDate = a.date.compareTo(b.date);
+        if (byDate != 0) return byDate;
+        return (a.interaction.followUpTime ?? '').compareTo(
+          b.interaction.followUpTime ?? '',
+        );
+      });
 
       final colors = Theme.of(context).colorScheme;
       final textTheme = Theme.of(context).textTheme;
@@ -474,9 +428,19 @@ class _FutureCallsCard extends StatelessWidget {
                         'Follow-up: ${followUp.interaction.followUpReason.trim().isEmpty ? 'Reason not specified' : followUp.interaction.followUpReason.trim()}',
                       ].join(' · '),
                     ),
-                    trailing: Text(
-                      localizations.formatMediumDate(followUp.date),
-                      textAlign: TextAlign.end,
+                    trailing: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(localizations.formatMediumDate(followUp.date)),
+                        Text(
+                          formatFollowUpTime(
+                            context,
+                            followUp.interaction.followUpTime,
+                          ),
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                      ],
                     ),
                     onTap: () => onOpenContact(followUp.contact),
                   ),

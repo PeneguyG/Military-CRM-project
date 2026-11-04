@@ -107,6 +107,75 @@ class ChildRecord {
   }
 }
 
+class ProfileTagDefinition {
+  const ProfileTagDefinition({
+    this.id,
+    required this.category,
+    required this.value,
+    required this.label,
+    required this.colorValue,
+    this.isBuiltIn = false,
+  });
+
+  final int? id;
+  final String category;
+  final String value;
+  final String label;
+  final int colorValue;
+  final bool isBuiltIn;
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'category': category,
+    'value': value,
+    'label': label,
+    'color_value': colorValue,
+    'is_builtin': isBuiltIn ? 1 : 0,
+  };
+
+  factory ProfileTagDefinition.fromMap(Map<String, Object?> map) =>
+      ProfileTagDefinition(
+        id: map['id'] as int?,
+        category: map['category']?.toString() ?? 'custom',
+        value: map['value']?.toString() ?? '',
+        label: map['label']?.toString() ?? '',
+        colorValue: map['color_value'] as int? ?? 0xFF616161,
+        isBuiltIn: map['is_builtin'] == 1,
+      );
+
+  ProfileTagDefinition copyWith({String? label, int? colorValue}) =>
+      ProfileTagDefinition(
+        id: id,
+        category: category,
+        value: value,
+        label: label ?? this.label,
+        colorValue: colorValue ?? this.colorValue,
+        isBuiltIn: isBuiltIn,
+      );
+}
+
+List<int> decodeIntList(Object? encoded) {
+  if (encoded is! String || encoded.trim().isEmpty) return const [];
+  try {
+    final decoded = jsonDecode(encoded);
+    if (decoded is! List) return const [];
+    final ids = <int>[];
+    for (final item in decoded) {
+      if (item is int) {
+        ids.add(item);
+      } else {
+        final id = int.tryParse(item.toString());
+        if (id != null) ids.add(id);
+      }
+    }
+    return ids;
+  } on FormatException {
+    return const [];
+  } on TypeError {
+    return const [];
+  }
+}
+
 class Contact {
   const Contact({
     this.id,
@@ -117,6 +186,9 @@ class Contact {
     this.suffix = '',
     this.militaryBranch = '',
     this.militaryRank = '',
+    this.preferredContactMethod = '',
+    this.lifeStatus = 'alive',
+    this.customTagIds = const [],
     this.title = '',
     this.phone = '',
     this.email = '',
@@ -141,6 +213,8 @@ class Contact {
       suffix,
       militaryBranch,
       militaryRank,
+      preferredContactMethod,
+      lifeStatus,
       title,
       phone,
       email,
@@ -152,6 +226,7 @@ class Contact {
   final String? photoPath;
   final Uint8List? photoBytes;
   final List<ChildRecord> children;
+  final List<int> customTagIds;
   final ContactStatus status;
   final bool isArchived;
   String get fullName =>
@@ -170,6 +245,9 @@ class Contact {
     'suffix': suffix,
     'military_branch': militaryBranch,
     'military_rank': militaryRank,
+    'preferred_contact_method': preferredContactMethod,
+    'life_status': lifeStatus,
+    'custom_tags_json': jsonEncode(customTagIds),
     'title': title,
     'phone': phone,
     'email': email,
@@ -188,13 +266,12 @@ class Contact {
   };
   factory Contact.fromMap(Map<String, Object?> m) {
     final storedStatus = m['status'] as String? ?? 'active';
-    // Older databases used Inactive and Deceased. Treat those legacy records
-    // as archived so they remain available in the Archive tab, not Contacts.
+    // Older databases used Inactive and Deceased. Inactive remains archived;
+    // deceased is migrated to the separate life-status tag.
     final isArchived =
         m['is_archived'] == 1 ||
         storedStatus == 'archived' ||
-        storedStatus == 'inactive' ||
-        storedStatus == 'deceased';
+        storedStatus == 'inactive';
 
     return Contact(
       id: m['id'] as int?,
@@ -205,6 +282,11 @@ class Contact {
       suffix: m['suffix'] as String? ?? '',
       militaryBranch: m['military_branch'] as String? ?? '',
       militaryRank: m['military_rank'] as String? ?? '',
+      preferredContactMethod: m['preferred_contact_method'] as String? ?? '',
+      lifeStatus:
+          m['life_status'] as String? ??
+          (storedStatus == 'deceased' ? 'deceased' : 'alive'),
+      customTagIds: decodeIntList(m['custom_tags_json']),
       title: m['title'] as String? ?? '',
       phone: m['phone'] as String? ?? '',
       email: m['email'] as String? ?? '',
@@ -229,6 +311,9 @@ class Contact {
     String? suffix,
     String? militaryBranch,
     String? militaryRank,
+    String? preferredContactMethod,
+    String? lifeStatus,
+    List<int>? customTagIds,
     String? title,
     String? phone,
     String? email,
@@ -267,6 +352,10 @@ class Contact {
       suffix: suffix ?? this.suffix,
       militaryBranch: militaryBranch ?? this.militaryBranch,
       militaryRank: militaryRank ?? this.militaryRank,
+      preferredContactMethod:
+          preferredContactMethod ?? this.preferredContactMethod,
+      lifeStatus: lifeStatus ?? this.lifeStatus,
+      customTagIds: customTagIds ?? this.customTagIds,
       title: title ?? this.title,
       phone: phone ?? this.phone,
       email: email ?? this.email,
@@ -288,6 +377,36 @@ class Contact {
   }
 }
 
+class ContactNote {
+  const ContactNote({
+    this.id,
+    required this.contactId,
+    required this.text,
+    required this.createdAt,
+  });
+
+  final int? id;
+  final int contactId;
+  final String text;
+  final DateTime createdAt;
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'contact_id': contactId,
+    'note_text': text,
+    'created_at': createdAt.toIso8601String(),
+  };
+
+  factory ContactNote.fromMap(Map<String, Object?> map) => ContactNote(
+    id: map['id'] as int?,
+    contactId: map['contact_id'] as int,
+    text: map['note_text']?.toString() ?? '',
+    createdAt:
+        DateTime.tryParse(map['created_at']?.toString() ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+  );
+}
+
 Uint8List? _readPhotoBytes(Object? value) {
   if (value is Uint8List) return value;
   if (value is List<int>) return Uint8List.fromList(value);
@@ -303,6 +422,7 @@ class InteractionLog {
     required this.type,
     required this.summary,
     this.followUpDate,
+    this.followUpTime,
     this.followUpReason = '',
     this.followUpCompleted = false,
   });
@@ -313,6 +433,7 @@ class InteractionLog {
   final String type, summary;
   final String followUpReason;
   final DateTime? followUpDate;
+  final String? followUpTime;
   final bool followUpCompleted;
   Map<String, Object?> toMap() => {
     'id': id,
@@ -322,6 +443,7 @@ class InteractionLog {
     'type': type,
     'summary': summary,
     'follow_up_date': followUpDate?.toIso8601String(),
+    'follow_up_time': followUpTime,
     'follow_up_reason': followUpReason,
     'follow_up_completed': followUpCompleted ? 1 : 0,
   };
@@ -342,6 +464,7 @@ class InteractionLog {
       followUpDate: followUpDate == null
           ? null
           : _parseFollowUpDate(followUpDate),
+      followUpTime: m['follow_up_time']?.toString(),
       followUpReason: m['follow_up_reason']?.toString() ?? '',
       followUpCompleted: m['follow_up_completed'] == 1,
     );
@@ -354,6 +477,7 @@ class InteractionLog {
     String? type,
     String? summary,
     Object? followUpDate = _unset,
+    Object? followUpTime = _unset,
     String? followUpReason,
     bool? followUpCompleted,
   }) => InteractionLog(
@@ -368,6 +492,9 @@ class InteractionLog {
     followUpDate: identical(followUpDate, _unset)
         ? this.followUpDate
         : followUpDate as DateTime?,
+    followUpTime: identical(followUpTime, _unset)
+        ? this.followUpTime
+        : followUpTime as String?,
     followUpReason: followUpReason ?? this.followUpReason,
     followUpCompleted: followUpCompleted ?? this.followUpCompleted,
   );

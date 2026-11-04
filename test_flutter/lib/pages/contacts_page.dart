@@ -171,11 +171,22 @@ Future<void> editContact(
       organizations: store.organizations,
       organizationId: original.organizationId,
       contactStatus: original.status,
-      dropdownFields: const {
+      tagDefinitions: store.profileTags,
+      dropdownFields: {
         'prefix': _contactPrefixes,
         'suffix': _contactSuffixes,
         'military_branch': _militaryBranches,
         'military_rank': _militaryRanks,
+        'preferred_contact_method': [
+          '',
+          ...store.profileTags
+              .where((tag) => tag.category == 'preferred_contact')
+              .map((tag) => tag.value),
+        ],
+        'life_status': store.profileTags
+            .where((tag) => tag.category == 'life_status')
+            .map((tag) => tag.value)
+            .toList(),
       },
       fields: const {
         'prefix': 'Prefix',
@@ -184,6 +195,8 @@ Future<void> editContact(
         'suffix': 'Suffix',
         'military_branch': 'Military branch',
         'military_rank': 'Military rank',
+        'preferred_contact_method': 'Preferred contact',
+        'life_status': 'Life status',
         'title': 'Professional / civilian title',
         'phone': 'Phone',
         'email': 'Email',
@@ -191,7 +204,7 @@ Future<void> editContact(
         'spouse_name': 'Spouse name (optional)',
         'children_json': 'Children',
         'photo_blob': 'Profile photo',
-        'notes': 'Notes',
+        'custom_tags_json': 'Profile tags',
       },
     ),
   );
@@ -270,13 +283,24 @@ class _ContactsPageState extends State<ContactsPage> {
                     return ListTile(
                       selected: c.id == _selected,
                       leading: ContactPhoto(c, size: 40),
-                      title: Text(c.fullName),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              c.fullName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          RecordStatusIndicator(isActive: !c.isArchived),
+                        ],
+                      ),
                       subtitle: Text(
                         [
                           if (c.militaryRank.isNotEmpty) c.militaryRank,
                           if (c.militaryBranch.isNotEmpty) c.militaryBranch,
                           if (c.title.isNotEmpty) c.title,
-                          label(c.status.name),
                         ].join(' · '),
                       ),
                       trailing: const Icon(Icons.chevron_right),
@@ -323,8 +347,27 @@ class ContactDetail extends StatelessWidget {
             type: result['type'] as String,
             summary: result['summary'] as String,
             followUpDate: result['followUp'] as DateTime?,
+            followUpTime: result['followUpTime'] as String?,
             followUpReason: result['followUpReason'] as String? ?? '',
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addNote(BuildContext context, Contact contact) async {
+    final text = await showDialog<String>(
+      context: context,
+      builder: (_) => const _AddContactNoteDialog(),
+    );
+    if (text == null || !context.mounted) return;
+    await runDatabaseAction(
+      context,
+      () => store.addContactNote(
+        ContactNote(
+          contactId: contact.id!,
+          text: text,
+          createdAt: DateTime.now(),
         ),
       ),
     );
@@ -344,8 +387,35 @@ class ContactDetail extends StatelessWidget {
         );
       }
       final organization = store.organization(c.organizationId);
+      final preferredTag = store.profileTags
+          .where(
+            (tag) =>
+                tag.category == 'preferred_contact' &&
+                tag.value == c.preferredContactMethod,
+          )
+          .firstOrNull;
+      final lifeTag = store.profileTags
+          .where(
+            (tag) => tag.category == 'life_status' && tag.value == c.lifeStatus,
+          )
+          .firstOrNull;
+      final assignedTags = [
+        for (final id in c.customTagIds)
+          ...store.profileTags.where((tag) => tag.id == id),
+      ];
+      final additionalTags = assignedTags.where((tag) {
+        if (tag.category == 'preferred_contact' &&
+            tag.value == c.preferredContactMethod) {
+          return false;
+        }
+        if (tag.category == 'life_status' && tag.value == c.lifeStatus) {
+          return false;
+        }
+        return true;
+      });
       final logs = store.interactions.where((i) => i.contactId == id).toList()
         ..sort((a, b) => b.date.compareTo(a.date));
+      final contactNotes = store.notesForContact(id);
       final localizations = MaterialLocalizations.of(context);
       return ListView(
         padding: const EdgeInsets.all(20),
@@ -355,7 +425,51 @@ class ContactDetail extends StatelessWidget {
             child: ContactPhoto(c, size: 96),
           ),
           const SizedBox(height: 12),
-          Text(c.fullName, style: Theme.of(context).textTheme.headlineMedium),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  c.fullName,
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+              ),
+              const SizedBox(width: 12),
+              RecordStatusIndicator(isActive: !c.isArchived),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (c.preferredContactMethod.isNotEmpty)
+                ContactProfileTag(
+                  label:
+                      'Preferred contact: ${preferredTag?.label ?? c.preferredContactMethod}',
+                  color: Color(
+                    preferredTag?.colorValue ??
+                        preferredContactColor(
+                          c.preferredContactMethod,
+                        ).toARGB32(),
+                  ),
+                ),
+              ContactProfileTag(
+                label:
+                    lifeTag?.label ??
+                    (c.lifeStatus == 'deceased' ? 'Deceased' : 'Alive'),
+                color: Color(
+                  lifeTag?.colorValue ??
+                      lifeStatusColor(c.lifeStatus).toARGB32(),
+                ),
+              ),
+              for (final tag in additionalTags)
+                ContactProfileTag(
+                  label: tag.label,
+                  color: Color(tag.colorValue),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
           if (c.militaryRank.isNotEmpty || c.militaryBranch.isNotEmpty)
             Text(
               [
@@ -373,7 +487,7 @@ class ContactDetail extends StatelessWidget {
                 ? 'Archived organization (see Archive tab)'
                 : organization.name,
           ),
-          Wrap(spacing: 8, children: [StatusBadge(c.status)]),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             children: [
@@ -392,19 +506,28 @@ class ContactDetail extends StatelessWidget {
               ),
             ],
           ),
-          InfoCard('Address / Location', c.address),
+          InfoCard(
+            'Last interaction',
+            logs.isEmpty
+                ? 'No interactions recorded'
+                : '${localizations.formatMediumDate(logs.first.date.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(logs.first.date.toLocal()))} · ${logs.first.type}',
+          ),
           if (c.phone.isNotEmpty)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.phone),
-              title: Text(formatPhoneForDisplay(c.phone)),
-              subtitle: const Text('Call or text'),
-              onTap: () async {
-                final type = await phoneAction(context, c.phone);
-                if (type != null && context.mounted)
-                  await _log(context, c, type);
-              },
+            InfoCard(
+              'Phone',
+              formatPhoneForDisplay(c.phone),
+              footer: OutlinedButton.icon(
+                onPressed: () async {
+                  final type = await phoneAction(context, c.phone);
+                  if (type != null && context.mounted) {
+                    await _log(context, c, type);
+                  }
+                },
+                icon: const Icon(Icons.phone_outlined),
+                label: const Text('Call or text'),
+              ),
             ),
+          InfoCard('Address / Location', c.address),
           InfoCard('Email', c.email),
           if (c.spouseName.isNotEmpty) InfoCard('Spouse', c.spouseName),
           if (c.children.isNotEmpty)
@@ -419,8 +542,42 @@ class ContactDetail extends StatelessWidget {
             )
           else if (c.childrenInfo.isNotEmpty)
             InfoCard('Children', c.childrenInfo),
-          InfoCard('Talking Points', c.talkingPoints),
-          InfoCard('Notes', c.notes),
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: () => _addNote(context, c),
+              icon: const Icon(Icons.add),
+              label: const Text('Add note'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Notes', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  if (contactNotes.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Text('No notes yet.'),
+                    ),
+                  for (final note in contactNotes) ...[
+                    if (contactNotes.first != note) const Divider(height: 24),
+                    SelectableText(note.text),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${localizations.formatMediumDate(note.createdAt.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(note.createdAt.toLocal()))}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
           Align(
             alignment: Alignment.centerLeft,
@@ -460,7 +617,7 @@ class ContactDetail extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Follow-up: ${localizations.formatMediumDate(log.followUpDate!.toLocal())}',
+                              'Follow-up: ${localizations.formatMediumDate(log.followUpDate!.toLocal())} · ${formatFollowUpTime(context, log.followUpTime)}',
                             ),
                             if (log.followUpReason.trim().isNotEmpty)
                               Text('Reason: ${log.followUpReason.trim()}'),
@@ -474,5 +631,60 @@ class ContactDetail extends StatelessWidget {
         ],
       );
     },
+  );
+}
+
+class _AddContactNoteDialog extends StatefulWidget {
+  const _AddContactNoteDialog();
+
+  @override
+  State<_AddContactNoteDialog> createState() => _AddContactNoteDialogState();
+}
+
+class _AddContactNoteDialogState extends State<_AddContactNoteDialog> {
+  final _key = GlobalKey<FormState>();
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Add contact note'),
+    content: SizedBox(
+      width: 480,
+      child: Form(
+        key: _key,
+        child: TextFormField(
+          controller: _controller,
+          autofocus: true,
+          minLines: 4,
+          maxLines: 8,
+          decoration: const InputDecoration(
+            labelText: 'Note',
+            hintText: 'Add a note to this contact’s profile',
+            border: OutlineInputBorder(),
+          ),
+          validator: (value) =>
+              value == null || value.trim().isEmpty ? 'Enter a note' : null,
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (!_key.currentState!.validate()) return;
+          Navigator.pop(context, _controller.text.trim());
+        },
+        child: const Text('Add note'),
+      ),
+    ],
   );
 }
