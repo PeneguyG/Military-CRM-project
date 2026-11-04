@@ -1,6 +1,59 @@
-# Military CRM SQLite storage
+# Steel Wings CRM
 
-Requires Python 3.10+ and SQLite with FTS5. No third-party Python packages.
+Steel Wings CRM is the Windows desktop application in `test_flutter`.
+
+## Run the Windows app
+
+### Launch an existing build
+
+If the project already has a Windows build, open
+`test_flutter\build\windows\x64\runner\Debug\steel_wings.exe` from File
+Explorer, or run this from the repository folder in PowerShell:
+
+```powershell
+Start-Process .\test_flutter\build\windows\x64\runner\Debug\steel_wings.exe
+```
+
+Keep the executable with the other files in its `Debug` folder, including the
+`data` folder and DLLs. The executable does not run by itself when copied out of
+that folder. Sign in with the password configured for your copy of the app.
+
+### Run from source
+
+Install Flutter 3.38 or newer and Visual Studio with the **Desktop development
+with C++** workload, then open PowerShell in the repository folder and run:
+
+```powershell
+cd .\test_flutter
+flutter pub get
+flutter run -d windows
+```
+
+To create a Windows release build instead, run this from `test_flutter`:
+
+```powershell
+flutter build windows --release
+```
+
+The release executable is at
+`test_flutter\build\windows\x64\runner\Release\steel_wings.exe`. Keep the
+whole `Release` folder together when moving or sharing the build.
+
+The app asks for its password at sign-in. Use the lock control in the app to
+return to the sign-in screen.
+
+## Local data
+
+Records are saved in a local SQLite database and remain available after the app
+closes. The database is stored in the platform application-support folder, in a
+`MilitaryCRM` subfolder, as `military_crm.sqlite3`. In the app, open Settings to
+view the exact database path. For additional database and development details,
+see [`test_flutter/README.md`](test_flutter/README.md).
+
+## Python SQLite helper
+
+The repository also contains a Python SQLite helper. It requires Python 3.10+
+and SQLite with FTS5; it has no third-party Python package dependencies.
 
 ```python
 from military_crm import MilitaryCRMDatabase

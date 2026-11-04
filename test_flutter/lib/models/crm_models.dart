@@ -184,6 +184,38 @@ List<int> decodeIntList(Object? encoded) {
   }
 }
 
+class ContactPhoneNumber {
+  const ContactPhoneNumber({required this.label, required this.number});
+
+  final String label;
+  final String number;
+
+  Map<String, Object?> toMap() => {'label': label, 'number': number};
+
+  factory ContactPhoneNumber.fromMap(Map<Object?, Object?> map) =>
+      ContactPhoneNumber(
+        label: map['label']?.toString() ?? 'Other',
+        number: map['number']?.toString() ?? '',
+      );
+
+  static List<ContactPhoneNumber> decodeMany(Object? value) {
+    Object? decoded = value;
+    if (value is String) {
+      try {
+        decoded = jsonDecode(value);
+      } on FormatException {
+        return const [];
+      }
+    }
+    if (decoded is! List) return const [];
+    return [
+      for (final item in decoded)
+        if (item is Map)
+          ContactPhoneNumber.fromMap(item.cast<Object?, Object?>()),
+    ];
+  }
+}
+
 class Contact {
   const Contact({
     this.id,
@@ -199,6 +231,8 @@ class Contact {
     this.customTagIds = const [],
     this.title = '',
     this.phone = '',
+    this.phoneLabel = 'Mobile',
+    this.additionalPhones = const [],
     this.email = '',
     this.address = '',
     this.spouseName = '',
@@ -225,6 +259,7 @@ class Contact {
       lifeStatus,
       title,
       phone,
+      phoneLabel,
       email,
       address,
       spouseName,
@@ -233,10 +268,19 @@ class Contact {
       talkingPoints;
   final String? photoPath;
   final Uint8List? photoBytes;
+  final List<ContactPhoneNumber> additionalPhones;
   final List<ChildRecord> children;
   final List<int> customTagIds;
   final ContactStatus status;
   final bool isArchived;
+  List<ContactPhoneNumber> get phoneNumbers => [
+    if (phone.trim().isNotEmpty)
+      ContactPhoneNumber(
+        label: phoneLabel.trim().isEmpty ? 'Phone' : phoneLabel,
+        number: phone,
+      ),
+    ...additionalPhones.where((phone) => phone.number.trim().isNotEmpty),
+  ];
   String get fullName =>
       [
         if (prefix.trim().isNotEmpty) prefix.trim(),
@@ -258,6 +302,10 @@ class Contact {
     'custom_tags_json': jsonEncode(customTagIds),
     'title': title,
     'phone': phone,
+    'phone_label': phoneLabel,
+    'additional_phones_json': jsonEncode(
+      additionalPhones.map((phone) => phone.toMap()).toList(),
+    ),
     'email': email,
     'address': address,
     'spouse_name': spouseName,
@@ -297,6 +345,10 @@ class Contact {
       customTagIds: decodeIntList(m['custom_tags_json']),
       title: m['title'] as String? ?? '',
       phone: m['phone'] as String? ?? '',
+      phoneLabel: m['phone_label'] as String? ?? 'Mobile',
+      additionalPhones: ContactPhoneNumber.decodeMany(
+        m['additional_phones_json'],
+      ),
       email: m['email'] as String? ?? '',
       address: m['address'] as String? ?? '',
       spouseName: m['spouse_name'] as String? ?? '',
@@ -324,6 +376,8 @@ class Contact {
     List<int>? customTagIds,
     String? title,
     String? phone,
+    String? phoneLabel,
+    List<ContactPhoneNumber>? additionalPhones,
     String? email,
     String? address,
     String? spouseName,
@@ -366,6 +420,8 @@ class Contact {
       customTagIds: customTagIds ?? this.customTagIds,
       title: title ?? this.title,
       phone: phone ?? this.phone,
+      phoneLabel: phoneLabel ?? this.phoneLabel,
+      additionalPhones: additionalPhones ?? this.additionalPhones,
       email: email ?? this.email,
       address: address ?? this.address,
       spouseName: spouseName ?? this.spouseName,

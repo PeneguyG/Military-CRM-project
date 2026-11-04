@@ -343,6 +343,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
 
   // The active index is the navigation state used by the rail and page stack.
   int _tab = 0;
+  bool _navigationCollapsed = false;
 
   // ContactsPage is recreated when a contact is opened from another section.
   // This lets it select and show the requested contact even if it was already
@@ -387,24 +388,49 @@ class _CrmHomePageState extends State<CrmHomePage> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      // The rail expands to readable labels on wider desktop windows. On
-      // narrower windows it stays compact and shows the active label only.
-      final extendedRail = constraints.maxWidth >= 1000;
+      // The rail expands to readable labels on wider desktop windows. The
+      // control in the content header can collapse it to icons only. The
+      // destination buttons below update immediately without rail animations.
+      final extendedRail =
+          constraints.maxWidth >= 1000 && !_navigationCollapsed;
+      final compactSelectedLabel =
+          constraints.maxWidth < 1000 && !_navigationCollapsed;
+      final railWidth = extendedRail ? 256.0 : 72.0;
 
       return Scaffold(
         body: SafeArea(
           child: Column(
             children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: IconButton(
-                    tooltip: 'Lock app',
-                    onPressed: widget.onLock,
-                    icon: const Icon(Icons.lock_outline),
+              Row(
+                children: [
+                  SizedBox(width: railWidth + 1),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: _navigationCollapsed
+                              ? 'Expand navigation'
+                              : 'Collapse navigation',
+                          onPressed: () => setState(
+                            () => _navigationCollapsed = !_navigationCollapsed,
+                          ),
+                          icon: Icon(
+                            _navigationCollapsed ? Icons.menu : Icons.menu_open,
+                          ),
+                        ),
+                        const Spacer(),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: IconButton(
+                            tooltip: 'Lock app',
+                            onPressed: widget.onLock,
+                            icon: const Icon(Icons.lock_outline),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
               Expanded(
                 // Keep navigation on the left for desktop and compact windows.
@@ -415,36 +441,39 @@ class _CrmHomePageState extends State<CrmHomePage> {
                     SizedBox(
                       // Row gives non-flex children unbounded width; keep the
                       // rail and bottom Settings tab at a known width.
-                      width: extendedRail ? 256 : 72,
+                      width: railWidth,
                       child: Column(
                         children: [
                           Expanded(
-                            child: NavigationRail(
-                              minWidth: 72,
-                              minExtendedWidth: 256,
-                              extended: extendedRail,
-                              labelType: extendedRail
-                                  ? null
-                                  : NavigationRailLabelType.selected,
-                              groupAlignment: -1,
-                              scrollable: true,
-                              selectedIndex: _tab == _settingsTab ? null : _tab,
-                              onDestinationSelected: _selectTab,
-                              destinations: [
-                                for (final destination in _destinations)
-                                  NavigationRailDestination(
-                                    icon: Icon(destination.icon),
-                                    selectedIcon: Icon(
-                                      destination.selectedIcon,
-                                    ),
-                                    label: Text(destination.label),
+                            child: ListView(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              children: [
+                                for (
+                                  var index = 0;
+                                  index < _destinations.length;
+                                  index++
+                                )
+                                  _NavigationItem(
+                                    label: _destinations[index].label,
+                                    icon: _tab == index
+                                        ? _destinations[index].selectedIcon
+                                        : _destinations[index].icon,
+                                    selected: _tab == index,
+                                    showLabel:
+                                        extendedRail ||
+                                        (compactSelectedLabel && _tab == index),
+                                    onPressed: () => _selectTab(index),
                                   ),
                               ],
                             ),
                           ),
-                          _SettingsNavigationButton(
-                            extended: extendedRail,
+                          _NavigationItem(
+                            label: 'Settings',
+                            icon: _tab == _settingsTab
+                                ? Icons.settings
+                                : Icons.settings_outlined,
                             selected: _tab == _settingsTab,
+                            showLabel: extendedRail,
                             onPressed: () => _selectTab(_settingsTab),
                           ),
                         ],
@@ -497,46 +526,81 @@ class _CrmHomePageState extends State<CrmHomePage> {
   );
 }
 
-class _SettingsNavigationButton extends StatelessWidget {
-  const _SettingsNavigationButton({
-    required this.extended,
+class _NavigationItem extends StatelessWidget {
+  const _NavigationItem({
+    required this.label,
+    required this.icon,
     required this.selected,
+    required this.showLabel,
     required this.onPressed,
   });
 
-  final bool extended;
+  final String label;
+  final IconData icon;
   final bool selected;
+  final bool showLabel;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-      child: extended
-          ? Material(
-              color: selected ? colors.secondaryContainer : Colors.transparent,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Tooltip(
+        message: label,
+        child: Semantics(
+          label: label,
+          button: true,
+          selected: selected,
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              onTap: onPressed,
+              mouseCursor: SystemMouseCursors.click,
+              splashFactory: NoSplash.splashFactory,
+              hoverColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              focusColor: Colors.transparent,
               borderRadius: BorderRadius.circular(16),
-              child: ListTile(
-                leading: Icon(
-                  selected ? Icons.settings : Icons.settings_outlined,
+              child: Container(
+                width: double.infinity,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? colors.secondaryContainer
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                title: const Text('Settings'),
-                selected: selected,
-                onTap: onPressed,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 56,
+                      child: Icon(
+                        icon,
+                        color: selected ? colors.onSecondaryContainer : null,
+                      ),
+                    ),
+                    if (showLabel)
+                      Expanded(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: selected
+                                ? colors.onSecondaryContainer
+                                : null,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            )
-          : IconButton(
-              tooltip: 'Settings',
-              onPressed: onPressed,
-              style: selected
-                  ? IconButton.styleFrom(
-                      backgroundColor: colors.secondaryContainer,
-                      foregroundColor: colors.onSecondaryContainer,
-                    )
-                  : null,
-              icon: Icon(selected ? Icons.settings : Icons.settings_outlined),
             ),
+          ),
+        ),
+      ),
     );
   }
 }

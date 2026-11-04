@@ -20,6 +20,16 @@ String capitalizeInitial(String value) {
 
 const _namePattern = r"^[\p{L}]+(?:[ '\-][\p{L}]+)*$";
 const _personNameKeys = {'first_name', 'last_name', 'spouse_name', 'title'};
+const _contactPhoneLabels = [
+  'Mobile',
+  'Home',
+  'Work',
+  'Office',
+  'Business',
+  'Fax',
+  'Secondary',
+  'Other',
+];
 
 int? _maxCharactersFor(String field) => switch (field) {
   'first_name' ||
@@ -47,6 +57,14 @@ List<TextInputFormatter> _formattersFor(String field) {
 
 bool _isPersonName(String value) =>
     RegExp(_namePattern, unicode: true).hasMatch(value);
+
+String? _validatePhone(String? value) {
+  final text = value?.trim() ?? '';
+  if (text.isNotEmpty && phoneDigits(text).length != 10) {
+    return 'Enter a 10-digit phone number.';
+  }
+  return null;
+}
 
 Future<void> runDatabaseAction(
   BuildContext context,
@@ -407,7 +425,8 @@ class _RecordFormState extends State<RecordForm> {
           key != 'children_json' &&
           key != 'photo_blob' &&
           key != 'logo_blob' &&
-          key != 'custom_tags_json',
+          key != 'custom_tags_json' &&
+          key != 'additional_phones_json',
     ))
       key: TextEditingController(
         text: key == 'phone'
@@ -424,6 +443,10 @@ class _RecordFormState extends State<RecordForm> {
   late List<ChildRecord> _children = ChildRecord.decodeMany(
     widget.values['children_json'],
   );
+  late final List<_PhoneDraft> _additionalPhones =
+      ContactPhoneNumber.decodeMany(
+        widget.values['additional_phones_json'],
+      ).map((phone) => _PhoneDraft(phone.label, phone.number)).toList();
   late List<int> _selectedCustomTagIds = decodeIntList(
     widget.values['custom_tags_json'],
   ).where((id) => widget.tagDefinitions.any((tag) => tag.id == id)).toList();
@@ -437,6 +460,9 @@ class _RecordFormState extends State<RecordForm> {
   void dispose() {
     for (final c in _controllers.values) {
       c.dispose();
+    }
+    for (final phone in _additionalPhones) {
+      phone.dispose();
     }
     super.dispose();
   }
@@ -452,6 +478,10 @@ class _RecordFormState extends State<RecordForm> {
       return _photoField(entry.value, isLogo: entry.key == 'logo_blob');
     }
     if (entry.key == 'custom_tags_json') return _customTagsField(entry.value);
+    if (entry.key == 'phone') return _primaryPhoneField();
+    if (entry.key == 'additional_phones_json') {
+      return _additionalPhonesField(entry.value);
+    }
 
     final options = widget.dropdownFields[entry.key];
     if (options != null) {
@@ -548,6 +578,133 @@ class _RecordFormState extends State<RecordForm> {
       },
     );
   }
+
+  Widget _primaryPhoneField() {
+    final selectedLabel = _dropdownValues['phone_label']?.isNotEmpty == true
+        ? _dropdownValues['phone_label']!
+        : 'Mobile';
+    final labels = [..._contactPhoneLabels];
+    if (!labels.contains(selectedLabel)) labels.add(selectedLabel);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Primary phone', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: DropdownButtonFormField<String>(
+                initialValue: selectedLabel,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Label',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final label in labels)
+                    DropdownMenuItem(value: label, child: Text(label)),
+                ],
+                onChanged: (value) => setState(
+                  () => _dropdownValues['phone_label'] = value ?? 'Mobile',
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: TextFormField(
+                controller: _controllers['phone'],
+                decoration: const InputDecoration(
+                  labelText: 'Phone number',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.phone,
+                inputFormatters: _formattersFor('phone'),
+                validator: _validatePhone,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _additionalPhonesField(String fieldLabel) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              fieldLabel,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => setState(
+              () => _additionalPhones.add(_PhoneDraft('Mobile', '')),
+            ),
+            icon: const Icon(Icons.add),
+            label: const Text('Add number'),
+          ),
+        ],
+      ),
+      if (_additionalPhones.isEmpty)
+        Text(
+          'No additional phone numbers',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      for (var index = 0; index < _additionalPhones.length; index++) ...[
+        if (index > 0) const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 2,
+              child: DropdownButtonFormField<String>(
+                initialValue: _additionalPhones[index].label,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Label',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final label in _contactPhoneLabels)
+                    DropdownMenuItem(value: label, child: Text(label)),
+                ],
+                onChanged: (value) => setState(
+                  () => _additionalPhones[index].label = value ?? 'Other',
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 3,
+              child: TextFormField(
+                controller: _additionalPhones[index].controller,
+                decoration: const InputDecoration(
+                  labelText: 'Phone number',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.phone,
+                inputFormatters: _formattersFor('phone'),
+                validator: _validatePhone,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Remove phone number',
+              onPressed: () => setState(() {
+                _additionalPhones.removeAt(index).dispose();
+              }),
+              icon: const Icon(Icons.remove_circle_outline),
+            ),
+          ],
+        ),
+      ],
+    ],
+  );
 
   String _dropdownOptionLabel(String field, String value) {
     final category = switch (field) {
@@ -809,6 +966,14 @@ class _RecordFormState extends State<RecordForm> {
                   if (!widget.organizationForm) {
                     result['organization_id'] = _organizationId;
                     result['status'] = _status.name;
+                    result['additional_phones_json'] = jsonEncode([
+                      for (final phone in _additionalPhones)
+                        if (phone.controller.text.trim().isNotEmpty)
+                          ContactPhoneNumber(
+                            label: phone.label,
+                            number: phone.controller.text.trim(),
+                          ).toMap(),
+                    ]);
                     result['children_json'] = jsonEncode(
                       _children.map((child) => child.toMap()).toList(),
                     );
@@ -844,6 +1009,17 @@ class _RecordFormState extends State<RecordForm> {
       ],
     ),
   );
+}
+
+class _PhoneDraft {
+  _PhoneDraft(String label, String number)
+    : label = label,
+      controller = TextEditingController(text: formatPhoneForEditing(number));
+
+  String label;
+  final TextEditingController controller;
+
+  void dispose() => controller.dispose();
 }
 
 class _ChildDraft {

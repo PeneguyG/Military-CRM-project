@@ -177,6 +177,16 @@ Future<void> editContact(
         'suffix': _contactSuffixes,
         'military_branch': _militaryBranches,
         'military_rank': _militaryRanks,
+        'phone_label': [
+          'Mobile',
+          'Home',
+          'Work',
+          'Office',
+          'Business',
+          'Fax',
+          'Secondary',
+          'Other',
+        ],
         'preferred_contact_method': [
           '',
           ...store.profileTags
@@ -199,7 +209,8 @@ Future<void> editContact(
         'preferred_contact_method': 'Preferred contact',
         'life_status': 'Life status',
         'title': 'Professional / civilian title',
-        'phone': 'Phone',
+        'phone': 'Primary phone',
+        'additional_phones_json': 'Additional phone numbers',
         'email': 'Email',
         'address': 'Address / Location',
         'spouse_name': 'Spouse name (optional)',
@@ -593,14 +604,14 @@ class ContactDetail extends StatelessWidget {
                 : organization.name,
             icon: Icons.business_outlined,
           ),
-          if (c.phone.isNotEmpty)
+          for (final phone in c.phoneNumbers)
             InfoCard(
-              'Phone',
-              formatPhoneForDisplay(c.phone),
+              'Phone · ${phone.label}',
+              formatPhoneForDisplay(phone.number),
               icon: Icons.phone_outlined,
               trailing: OutlinedButton.icon(
                 onPressed: () async {
-                  final type = await phoneAction(context, c.phone);
+                  final type = await phoneAction(context, phone.number);
                   if (type != null && context.mounted) {
                     await _log(context, c, type);
                   }

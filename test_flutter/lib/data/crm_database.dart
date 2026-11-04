@@ -166,7 +166,7 @@ void _migrate(Database db) {
       'SELECT version FROM crm_app_migrations ORDER BY version DESC',
     );
     var version = versions.isEmpty ? 0 : versions.first['version'] as int;
-    if (version > 10)
+    if (version > 11)
       throw StateError('This database requires a newer CRM application.');
     if (version == 0) {
       db.execute('''
@@ -295,6 +295,25 @@ void _migrate(Database db) {
         ALTER TABLE organizations ADD COLUMN logo_blob BLOB;
         INSERT INTO crm_app_migrations(version) VALUES(10);
       ''');
+      version = 10;
+    }
+    if (version < 11) {
+      db.execute('''
+        ALTER TABLE contacts ADD COLUMN phone_label TEXT NOT NULL DEFAULT 'Mobile';
+        ALTER TABLE contacts ADD COLUMN additional_phones_json TEXT NOT NULL DEFAULT '[]';
+      ''');
+      final legacyPhones = db.select(
+        "SELECT id, secondary_phone FROM contacts WHERE secondary_phone IS NOT NULL AND trim(secondary_phone) <> ''",
+      );
+      for (final row in legacyPhones) {
+        db.execute('UPDATE contacts SET additional_phones_json=? WHERE id=?', [
+          jsonEncode([
+            {'label': 'Secondary', 'number': row['secondary_phone']},
+          ]),
+          row['id'],
+        ]);
+      }
+      db.execute('INSERT INTO crm_app_migrations(version) VALUES(11);');
     }
     db.execute('COMMIT;');
   } catch (_) {
@@ -448,6 +467,8 @@ void _saveContact(Database db, Map<String, Object?> m) {
     'custom_tags_json': 'custom_tags_json',
     'title': 'rank_or_title',
     'phone': 'primary_phone',
+    'phone_label': 'phone_label',
+    'additional_phones_json': 'additional_phones_json',
     'email': 'email',
     'address': 'address',
     'spouse_name': 'spouse_name',
