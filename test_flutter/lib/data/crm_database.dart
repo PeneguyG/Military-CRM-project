@@ -166,7 +166,7 @@ void _migrate(Database db) {
       'SELECT version FROM crm_app_migrations ORDER BY version DESC',
     );
     var version = versions.isEmpty ? 0 : versions.first['version'] as int;
-    if (version > 9)
+    if (version > 10)
       throw StateError('This database requires a newer CRM application.');
     if (version == 0) {
       db.execute('''
@@ -288,6 +288,13 @@ void _migrate(Database db) {
         CREATE INDEX idx_organization_notes_org_created ON organization_notes(organization_id, created_at DESC, id DESC);
         INSERT INTO crm_app_migrations(version) VALUES(9);
       ''');
+      version = 9;
+    }
+    if (version < 10) {
+      db.execute('''
+        ALTER TABLE organizations ADD COLUMN logo_blob BLOB;
+        INSERT INTO crm_app_migrations(version) VALUES(10);
+      ''');
     }
     db.execute('COMMIT;');
   } catch (_) {
@@ -396,6 +403,7 @@ void _saveOrganization(Database db, Map<String, Object?> m) {
       'phone',
       'email',
       'notes',
+      'logo_blob',
       'is_archived',
     ])
       key: m[key],
@@ -408,8 +416,22 @@ void _saveOrganization(Database db, Map<String, Object?> m) {
   final rows = db.select('SELECT * FROM organizations WHERE id=?', [id]);
   if (rows.isEmpty) throw StateError('Organization no longer exists');
   final original = Organization.fromMap(_organization(rows.single)).toMap();
-  values.removeWhere((key, value) => original[key] == value);
+  values.removeWhere(
+    (key, value) => _sameOrganizationValue(key, original[key], value),
+  );
   _update(db, 'organizations', id, values);
+}
+
+bool _sameOrganizationValue(String key, Object? first, Object? second) {
+  if (key != 'logo_blob') return first == second;
+  if (identical(first, second)) return true;
+  if (first == null || second == null) return first == second;
+  if (first is! List<int> || second is! List<int>) return first == second;
+  if (first.length != second.length) return false;
+  for (var index = 0; index < first.length; index++) {
+    if (first[index] != second[index]) return false;
+  }
+  return true;
 }
 
 void _saveContact(Database db, Map<String, Object?> m) {

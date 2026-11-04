@@ -149,6 +149,48 @@ class ContactPhoto extends StatelessWidget {
   }
 }
 
+class OrganizationLogo extends StatelessWidget {
+  const OrganizationLogo(this.organization, {super.key, this.size = 56});
+
+  final Organization organization;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final logoBytes = organization.logoBytes;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: logoBytes == null || logoBytes.isEmpty
+            ? Icon(
+                Icons.business_outlined,
+                size: size * 0.55,
+                color: Theme.of(context).colorScheme.primary,
+              )
+            : Padding(
+                padding: const EdgeInsets.all(4),
+                child: Image.memory(
+                  logoBytes,
+                  width: size - 8,
+                  height: size - 8,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) =>
+                      Icon(Icons.broken_image_outlined, size: size * 0.55),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
 class InfoCard extends StatelessWidget {
   const InfoCard(
     this.title,
@@ -364,6 +406,7 @@ class _RecordFormState extends State<RecordForm> {
           !widget.dropdownFields.containsKey(key) &&
           key != 'children_json' &&
           key != 'photo_blob' &&
+          key != 'logo_blob' &&
           key != 'custom_tags_json',
     ))
       key: TextEditingController(
@@ -384,8 +427,12 @@ class _RecordFormState extends State<RecordForm> {
   late List<int> _selectedCustomTagIds = decodeIntList(
     widget.values['custom_tags_json'],
   ).where((id) => widget.tagDefinitions.any((tag) => tag.id == id)).toList();
-  late Uint8List? _photoBytes = _readPhotoBytes(widget.values['photo_blob']);
-  late String? _photoPath = widget.values['photo_path'] as String?;
+  late Uint8List? _photoBytes = _readPhotoBytes(
+    widget.values[widget.organizationForm ? 'logo_blob' : 'photo_blob'],
+  );
+  late String? _photoPath = widget.organizationForm
+      ? null
+      : widget.values['photo_path'] as String?;
   @override
   void dispose() {
     for (final c in _controllers.values) {
@@ -401,7 +448,9 @@ class _RecordFormState extends State<RecordForm> {
         onChanged: (children) => _children = children,
       );
     }
-    if (entry.key == 'photo_blob') return _photoField(entry.value);
+    if (entry.key == 'photo_blob' || entry.key == 'logo_blob') {
+      return _photoField(entry.value, isLogo: entry.key == 'logo_blob');
+    }
     if (entry.key == 'custom_tags_json') return _customTagsField(entry.value);
 
     final options = widget.dropdownFields[entry.key];
@@ -551,16 +600,16 @@ class _RecordFormState extends State<RecordForm> {
     );
   }
 
-  Widget _photoField(String title) {
+  Widget _photoField(String title, {bool isLogo = false}) {
     final bytes = _photoBytes;
     final path = _photoPath;
     Widget preview;
     if (bytes != null && bytes.isNotEmpty) {
       preview = Image.memory(
         bytes,
-        width: 88,
-        height: 88,
-        fit: BoxFit.cover,
+        width: isLogo ? 120 : 88,
+        height: isLogo ? 88 : 88,
+        fit: isLogo ? BoxFit.contain : BoxFit.cover,
         errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined),
       );
     } else if (path != null && path.trim().isNotEmpty) {
@@ -572,12 +621,30 @@ class _RecordFormState extends State<RecordForm> {
         errorBuilder: (_, __, ___) => const Icon(Icons.person_outline),
       );
     } else {
-      preview = const SizedBox(
-        width: 88,
+      preview = SizedBox(
+        width: isLogo ? 120 : 88,
         height: 88,
-        child: Icon(Icons.person_outline, size: 44),
+        child: Icon(
+          isLogo ? Icons.business_outlined : Icons.person_outline,
+          size: 44,
+        ),
       );
     }
+    final framedPreview = isLogo
+        ? Container(
+            width: 120,
+            height: 88,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(7),
+              child: preview,
+            ),
+          )
+        : ClipOval(child: preview);
 
     return InputDecorator(
       decoration: InputDecoration(
@@ -586,7 +653,7 @@ class _RecordFormState extends State<RecordForm> {
       ),
       child: Row(
         children: [
-          ClipOval(child: preview),
+          framedPreview,
           const SizedBox(width: 16),
           Expanded(
             child: Wrap(
@@ -596,7 +663,15 @@ class _RecordFormState extends State<RecordForm> {
                 OutlinedButton.icon(
                   onPressed: _saving ? null : _selectPhoto,
                   icon: const Icon(Icons.upload_file),
-                  label: Text(bytes == null ? 'Choose photo' : 'Replace photo'),
+                  label: Text(
+                    isLogo
+                        ? bytes == null
+                              ? 'Choose logo'
+                              : 'Replace logo'
+                        : bytes == null
+                        ? 'Choose photo'
+                        : 'Replace photo',
+                  ),
                 ),
                 if (bytes != null || (path?.trim().isNotEmpty ?? false))
                   TextButton.icon(
@@ -742,6 +817,8 @@ class _RecordFormState extends State<RecordForm> {
                     );
                     result['photo_blob'] = _photoBytes;
                     result['photo_path'] = _photoPath;
+                  } else {
+                    result['logo_blob'] = _photoBytes;
                   }
                   setState(() {
                     _saving = true;

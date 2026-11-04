@@ -20,6 +20,7 @@ Future<void> editOrganization(
       onSave: (values) => store.saveOrganization(Organization.fromMap(values)),
       organizationForm: true,
       fields: const {
+        'logo_blob': 'Organization logo',
         'name': 'Organization name *',
         'industry': 'Industry *',
         'address': 'Address / Location',
@@ -86,6 +87,7 @@ class _OrganizationsPageState extends State<OrganizationsPage> {
                     final o = items[index];
                     return ListTile(
                       selected: o.id == _selected,
+                      leading: OrganizationLogo(o, size: 40),
                       title: Row(
                         children: [
                           Expanded(
@@ -186,6 +188,24 @@ class OrganizationDetail extends StatelessWidget {
               .where((c) => c.organizationId == id && !c.isArchived)
               .toList()
             ..sort((a, b) => a.fullName.compareTo(b.fullName));
+      final organizationActions = Wrap(
+        spacing: 8,
+        children: [
+          OutlinedButton.icon(
+            onPressed: () => editOrganization(context, store, o),
+            icon: const Icon(Icons.edit),
+            label: const Text('Edit'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => runDatabaseAction(
+              context,
+              () => store.archiveOrganization(o.id!, true),
+            ),
+            icon: const Icon(Icons.archive_outlined),
+            label: const Text('Archive'),
+          ),
+        ],
+      );
       return ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -194,10 +214,7 @@ class OrganizationDetail extends StatelessWidget {
               Expanded(
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.business_outlined,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                    OrganizationLogo(o, size: 64),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -213,41 +230,49 @@ class OrganizationDetail extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(
-                Icons.category_outlined,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: Text(o.industry)),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final industry = Row(
+                children: [
+                  Icon(
+                    Icons.category_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(o.industry)),
+                ],
+              );
+              if (constraints.maxWidth < 600) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    industry,
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: organizationActions,
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: industry),
+                  const SizedBox(width: 12),
+                  organizationActions,
+                ],
+              );
+            },
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => editOrganization(context, store, o),
-                icon: const Icon(Icons.edit),
-                label: const Text('Edit'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => runDatabaseAction(
-                  context,
-                  () => store.archiveOrganization(o.id!, true),
-                ),
-                icon: const Icon(Icons.archive_outlined),
-                label: const Text('Archive'),
-              ),
-            ],
-          ),
+          const SizedBox(height: 4),
+          const Divider(height: 1),
+          const SizedBox(height: 8),
           if (o.phone.isNotEmpty)
             InfoCard(
               'Phone',
               formatPhoneForDisplay(o.phone),
               icon: Icons.phone_outlined,
-              footer: OutlinedButton.icon(
+              trailing: OutlinedButton.icon(
                 onPressed: () => phoneAction(context, o.phone),
                 icon: const Icon(Icons.phone_outlined),
                 label: const Text('Call or text'),

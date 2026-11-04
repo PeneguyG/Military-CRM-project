@@ -26,8 +26,25 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
   bool _isAuthenticated = false;
   ThemeMode? _override;
   late final Timer _timer;
-  late Future<CrmStore> _opening;
+  Future<CrmStore>? _opening;
   CrmStore? _ownedStore;
+
+  void _authenticate() {
+    setState(() {
+      _isAuthenticated = true;
+      _opening = _openStore();
+    });
+  }
+
+  void _lockApp() {
+    _ownedStore?.dispose();
+    _ownedStore = null;
+    setState(() {
+      _isAuthenticated = false;
+      _opening = null;
+    });
+  }
+
   Future<CrmStore> _openStore() async {
     if (widget.store != null) return widget.store!;
     const override = String.fromEnvironment('CRM_DATABASE_PATH');
@@ -51,7 +68,6 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
   @override
   void initState() {
     super.initState();
-    _opening = _openStore();
     WidgetsBinding.instance.addObserver(this);
     _timer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (_override == null) setState(() {});
@@ -95,7 +111,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
       ),
       home: _isAuthenticated
           ? FutureBuilder<CrmStore>(
-              future: _opening,
+              future: _opening!,
               builder: (context, snapshot) {
                 if (snapshot.hasError)
                   return Scaffold(
@@ -123,8 +139,20 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                     ),
                   );
                 if (!snapshot.hasData)
-                  return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
+                  return Scaffold(
+                    body: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Loading Steel Wings CRM…',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 return CrmHomePage(
                   store: snapshot.data!,
@@ -137,13 +165,11 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                   ),
                   onAutomaticThemeChanged: (enabled) =>
                       setState(() => _override = enabled ? null : mode),
-                  onLock: () => setState(() => _isAuthenticated = false),
+                  onLock: _lockApp,
                 );
               },
             )
-          : _SignInPage(
-              onAuthenticated: () => setState(() => _isAuthenticated = true),
-            ),
+          : _SignInPage(onAuthenticated: _authenticate),
     );
   }
 }

@@ -334,13 +334,7 @@ class _ContactsPageState extends State<ContactsPage> {
                           RecordStatusIndicator(isActive: !c.isArchived),
                         ],
                       ),
-                      subtitle: Text(
-                        [
-                          if (c.militaryRank.isNotEmpty) c.militaryRank,
-                          if (c.militaryBranch.isNotEmpty) c.militaryBranch,
-                          if (c.title.isNotEmpty) c.title,
-                        ].join(' · '),
-                      ),
+                      subtitle: c.title.isEmpty ? null : Text(c.title),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () {
                         setState(() => _selected = c.id);
@@ -458,59 +452,9 @@ class ContactDetail extends StatelessWidget {
         ..sort((a, b) => b.date.compareTo(a.date));
       final contactNotes = store.notesForContact(id);
       final localizations = MaterialLocalizations.of(context);
-      return ListView(
-        padding: const EdgeInsets.all(20),
+      final titleDetails = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: ContactPhoto(c, size: 96),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  c.fullName,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-              ),
-              const SizedBox(width: 12),
-              RecordStatusIndicator(isActive: !c.isArchived),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (c.preferredContactMethod.isNotEmpty)
-                ContactProfileTag(
-                  label:
-                      'Preferred contact: ${preferredTag?.label ?? c.preferredContactMethod}',
-                  color: Color(
-                    preferredTag?.colorValue ??
-                        preferredContactColor(
-                          c.preferredContactMethod,
-                        ).toARGB32(),
-                  ),
-                ),
-              ContactProfileTag(
-                label:
-                    lifeTag?.label ??
-                    (c.lifeStatus == 'deceased' ? 'Deceased' : 'Alive'),
-                color: Color(
-                  lifeTag?.colorValue ??
-                      lifeStatusColor(c.lifeStatus).toARGB32(),
-                ),
-              ),
-              for (final tag in additionalTags)
-                ContactProfileTag(
-                  label: tag.label,
-                  color: Color(tag.colorValue),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
           if (c.militaryRank.isNotEmpty || c.militaryBranch.isNotEmpty)
             Text(
               [
@@ -521,25 +465,125 @@ class ContactDetail extends StatelessWidget {
             ),
           if (c.title.isNotEmpty)
             Text(c.title, style: Theme.of(context).textTheme.bodyLarge),
-          Wrap(
-            spacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => editContact(context, store, c),
-                icon: const Icon(Icons.edit),
-                label: const Text('Edit'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => runDatabaseAction(
-                  context,
-                  () => store.archiveContact(c.id!, true),
+        ],
+      );
+      final actions = Wrap(
+        spacing: 8,
+        children: [
+          OutlinedButton.icon(
+            onPressed: () => editContact(context, store, c),
+            icon: const Icon(Icons.edit),
+            label: const Text('Edit'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => runDatabaseAction(
+              context,
+              () => store.archiveContact(c.id!, true),
+            ),
+            icon: const Icon(Icons.archive_outlined),
+            label: const Text('Archive'),
+          ),
+        ],
+      );
+      final statusTags = SizedBox(
+        width: double.infinity,
+        child: Wrap(
+          alignment: WrapAlignment.end,
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            if (c.preferredContactMethod.isNotEmpty)
+              ContactProfileTag(
+                label:
+                    'Preferred contact: ${preferredTag?.label ?? c.preferredContactMethod}',
+                color: Color(
+                  preferredTag?.colorValue ??
+                      preferredContactColor(
+                        c.preferredContactMethod,
+                      ).toARGB32(),
                 ),
-                icon: const Icon(Icons.archive_outlined),
-                label: const Text('Archive'),
               ),
+            ContactProfileTag(
+              label:
+                  lifeTag?.label ??
+                  (c.lifeStatus == 'deceased' ? 'Deceased' : 'Alive'),
+              color: Color(
+                lifeTag?.colorValue ?? lifeStatusColor(c.lifeStatus).toARGB32(),
+              ),
+            ),
+            for (final tag in additionalTags)
+              ContactProfileTag(label: tag.label, color: Color(tag.colorValue)),
+          ],
+        ),
+      );
+      return ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              ContactPhoto(c, size: 96),
+              RecordStatusIndicator(isActive: !c.isArchived),
             ],
           ),
-          const Divider(height: 24),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, _) {
+              final name = Text(
+                c.fullName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.headlineMedium,
+              );
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(flex: 3, child: name),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    flex: 4,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: statusTags,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) => constraints.maxWidth < 560
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      titleDetails,
+                      Align(alignment: Alignment.centerRight, child: actions),
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(child: titleDetails),
+                      const SizedBox(width: 12),
+                      actions,
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 2),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          InfoCard(
+            'Last interaction',
+            logs.isEmpty
+                ? 'No interactions recorded'
+                : '${localizations.formatMediumDate(logs.first.date.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(logs.first.date.toLocal()))} · ${logs.first.type}',
+            icon: Icons.history,
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
           InfoCard(
             'Organization',
             organization == null
@@ -548,13 +592,6 @@ class ContactDetail extends StatelessWidget {
                 ? 'Archived organization (see Archive tab)'
                 : organization.name,
             icon: Icons.business_outlined,
-          ),
-          InfoCard(
-            'Last interaction',
-            logs.isEmpty
-                ? 'No interactions recorded'
-                : '${localizations.formatMediumDate(logs.first.date.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(logs.first.date.toLocal()))} · ${logs.first.type}',
-            icon: Icons.history,
           ),
           if (c.phone.isNotEmpty)
             InfoCard(
@@ -572,12 +609,12 @@ class ContactDetail extends StatelessWidget {
                 label: const Text('Call or text'),
               ),
             ),
+          InfoCard('Email', c.email, icon: Icons.email_outlined),
           InfoCard(
             'Address / Location',
             c.address,
             icon: Icons.location_on_outlined,
           ),
-          InfoCard('Email', c.email, icon: Icons.email_outlined),
           if (c.spouseName.isNotEmpty)
             InfoCard('Spouse', c.spouseName, icon: Icons.people_alt_outlined),
           if (c.children.isNotEmpty)

@@ -27,10 +27,12 @@ class Organization {
     this.phone = '',
     this.email = '',
     this.notes = '',
+    this.logoBytes,
     this.isArchived = false,
   });
   final int? id;
   final String name, industry, address, phone, email, notes;
+  final Uint8List? logoBytes;
   final bool isArchived;
 
   Map<String, Object?> toMap() => {
@@ -41,6 +43,7 @@ class Organization {
     'phone': phone,
     'email': email,
     'notes': notes,
+    'logo_blob': logoBytes,
     'is_archived': isArchived ? 1 : 0,
   };
   factory Organization.fromMap(Map<String, Object?> m) => Organization(
@@ -51,6 +54,7 @@ class Organization {
     phone: m['phone'] as String? ?? '',
     email: m['email'] as String? ?? '',
     notes: m['notes'] as String? ?? '',
+    logoBytes: _readPhotoBytes(m['logo_blob']),
     isArchived: m['is_archived'] == 1,
   );
   Organization copyWith({
@@ -61,6 +65,7 @@ class Organization {
     String? phone,
     String? email,
     String? notes,
+    Object? logoBytes = _unset,
     bool? isArchived,
   }) => Organization(
     id: identical(id, _unset) ? this.id : id as int?,
@@ -70,6 +75,9 @@ class Organization {
     phone: phone ?? this.phone,
     email: email ?? this.email,
     notes: notes ?? this.notes,
+    logoBytes: identical(logoBytes, _unset)
+        ? this.logoBytes
+        : logoBytes as Uint8List?,
     isArchived: isArchived ?? this.isArchived,
   );
 }
