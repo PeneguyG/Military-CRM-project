@@ -494,6 +494,9 @@ class _ContactDetailState extends State<ContactDetail> {
           ...store.profileTags.where((tag) => tag.id == id),
       ];
       final additionalTags = assignedTags.where((tag) {
+        if (tag.category == 'life_status' && tag.value == 'alive') {
+          return false;
+        }
         if (tag.category == 'preferred_contact' &&
             tag.value == c.preferredContactMethod) {
           return false;

@@ -492,9 +492,16 @@ class _RecordFormState extends State<RecordForm> {
       ContactEmailAddress.decodeMany(
         widget.values['additional_emails_json'],
       ).map((email) => _EmailDraft(email.label, email.address)).toList();
-  late List<int> _selectedCustomTagIds = decodeIntList(
-    widget.values['custom_tags_json'],
-  ).where((id) => widget.tagDefinitions.any((tag) => tag.id == id)).toList();
+  late List<int> _selectedCustomTagIds =
+      decodeIntList(widget.values['custom_tags_json'])
+          .where(
+            (id) => widget.tagDefinitions.any(
+              (tag) =>
+                  tag.id == id &&
+                  !(tag.category == 'life_status' && tag.value == 'alive'),
+            ),
+          )
+          .toList();
   late Uint8List? _photoBytes = _readPhotoBytes(
     widget.values[widget.organizationForm ? 'logo_blob' : 'photo_blob'],
   );
@@ -917,7 +924,11 @@ class _RecordFormState extends State<RecordForm> {
 
   Widget _customTagsField(String title) {
     final availableTags = widget.tagDefinitions
-        .where((tag) => tag.id != null)
+        .where(
+          (tag) =>
+              tag.id != null &&
+              !(tag.category == 'life_status' && tag.value == 'alive'),
+        )
         .toList();
     return InputDecorator(
       decoration: InputDecoration(
