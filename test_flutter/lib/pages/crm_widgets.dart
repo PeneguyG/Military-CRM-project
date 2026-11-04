@@ -30,6 +30,7 @@ const _contactPhoneLabels = [
   'Secondary',
   'Other',
 ];
+const _contactEmailLabels = ['Primary', 'Work', 'Personal', 'Home', 'Other'];
 
 int? _maxCharactersFor(String field) => switch (field) {
   'first_name' ||
@@ -66,6 +67,16 @@ String? _validatePhone(String? value) {
   return null;
 }
 
+String? _validateEmailAddress(String? value) {
+  final text = value?.trim() ?? '';
+  if (text.length > 35) return 'Use 35 characters or fewer.';
+  if (text.isNotEmpty &&
+      !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(text)) {
+    return 'Enter an email with one @ and a dot.';
+  }
+  return null;
+}
+
 Future<void> runDatabaseAction(
   BuildContext context,
   Future<void> Function() action,
@@ -92,6 +103,8 @@ class StatusBadge extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final color = switch (status) {
       ContactStatus.active => dark ? Colors.greenAccent : Colors.green.shade800,
+      ContactStatus.inactive =>
+        dark ? Colors.orangeAccent : Colors.orange.shade900,
       ContactStatus.archived =>
         dark ? Colors.grey.shade300 : Colors.grey.shade700,
     };
@@ -107,20 +120,33 @@ class StatusBadge extends StatelessWidget {
 }
 
 class RecordStatusIndicator extends StatelessWidget {
-  const RecordStatusIndicator({super.key, required this.isActive});
+  const RecordStatusIndicator({
+    super.key,
+    required this.isActive,
+    this.contactStatus,
+  });
 
   final bool isActive;
+  final ContactStatus? contactStatus;
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? const Color(0xFF2E7D32) : Colors.grey.shade700;
+    final color = switch (contactStatus) {
+      ContactStatus.active => const Color(0xFF2E7D32),
+      ContactStatus.inactive => Colors.orange.shade800,
+      ContactStatus.archived => Colors.grey.shade700,
+      null => isActive ? const Color(0xFF2E7D32) : Colors.grey.shade700,
+    };
+    final statusText = contactStatus == null
+        ? (isActive ? 'Active' : 'Archived')
+        : label(contactStatus!.name);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(Icons.circle, size: 9, color: color),
         const SizedBox(width: 6),
         Text(
-          isActive ? 'Active' : 'Archived',
+          statusText,
           style: Theme.of(context).textTheme.labelMedium?.copyWith(
             color: color,
             fontWeight: FontWeight.w600,
@@ -386,6 +412,20 @@ Future<String?> phoneAction(BuildContext context, String phone) async {
   return null;
 }
 
+Future<void> emailAction(BuildContext context, String email) async {
+  try {
+    if (await launchUrl(Uri(scheme: 'mailto', path: email))) return;
+  } catch (_) {
+    // Desktop devices may not have a registered email application.
+  }
+  if (context.mounted)
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No email application could open this address.'),
+      ),
+    );
+}
+
 class RecordForm extends StatefulWidget {
   const RecordForm({
     super.key,
@@ -426,7 +466,8 @@ class _RecordFormState extends State<RecordForm> {
           key != 'photo_blob' &&
           key != 'logo_blob' &&
           key != 'custom_tags_json' &&
-          key != 'additional_phones_json',
+          key != 'additional_phones_json' &&
+          key != 'additional_emails_json',
     ))
       key: TextEditingController(
         text: key == 'phone'
@@ -447,6 +488,10 @@ class _RecordFormState extends State<RecordForm> {
       ContactPhoneNumber.decodeMany(
         widget.values['additional_phones_json'],
       ).map((phone) => _PhoneDraft(phone.label, phone.number)).toList();
+  late final List<_EmailDraft> _additionalEmails =
+      ContactEmailAddress.decodeMany(
+        widget.values['additional_emails_json'],
+      ).map((email) => _EmailDraft(email.label, email.address)).toList();
   late List<int> _selectedCustomTagIds = decodeIntList(
     widget.values['custom_tags_json'],
   ).where((id) => widget.tagDefinitions.any((tag) => tag.id == id)).toList();
@@ -464,6 +509,9 @@ class _RecordFormState extends State<RecordForm> {
     for (final phone in _additionalPhones) {
       phone.dispose();
     }
+    for (final email in _additionalEmails) {
+      email.dispose();
+    }
     super.dispose();
   }
 
@@ -478,9 +526,17 @@ class _RecordFormState extends State<RecordForm> {
       return _photoField(entry.value, isLogo: entry.key == 'logo_blob');
     }
     if (entry.key == 'custom_tags_json') return _customTagsField(entry.value);
-    if (entry.key == 'phone') return _primaryPhoneField();
-    if (entry.key == 'additional_phones_json') {
+    if (entry.key == 'phone' && !widget.organizationForm) {
+      return _primaryPhoneField();
+    }
+    if (entry.key == 'additional_phones_json' && !widget.organizationForm) {
       return _additionalPhonesField(entry.value);
+    }
+    if (entry.key == 'email' && !widget.organizationForm) {
+      return _primaryEmailField();
+    }
+    if (entry.key == 'additional_emails_json' && !widget.organizationForm) {
+      return _additionalEmailsField(entry.value);
     }
 
     final options = widget.dropdownFields[entry.key];
@@ -706,6 +762,142 @@ class _RecordFormState extends State<RecordForm> {
     ],
   );
 
+  Widget _primaryEmailField() {
+    final selectedLabel = _dropdownValues['email_label']?.isNotEmpty == true
+        ? _dropdownValues['email_label']!
+        : 'Primary';
+    final labels = [..._contactEmailLabels];
+    if (!labels.contains(selectedLabel)) labels.add(selectedLabel);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Primary email', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: DropdownButtonFormField<String>(
+                initialValue: selectedLabel,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Label',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final label in labels)
+                    DropdownMenuItem(value: label, child: Text(label)),
+                ],
+                onChanged: (value) => setState(
+                  () => _dropdownValues['email_label'] = value ?? 'Primary',
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: TextFormField(
+                controller: _controllers['email'],
+                decoration: const InputDecoration(
+                  labelText: 'Email address',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                textCapitalization: TextCapitalization.none,
+                inputFormatters: _formattersFor('email'),
+                validator: _validateEmailAddress,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _additionalEmailsField(String fieldLabel) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              fieldLabel,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () =>
+                setState(() => _additionalEmails.add(_EmailDraft('Work', ''))),
+            icon: const Icon(Icons.add),
+            label: const Text('Add address'),
+          ),
+        ],
+      ),
+      if (_additionalEmails.isEmpty)
+        Text(
+          'No additional email addresses',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      for (var index = 0; index < _additionalEmails.length; index++) ...[
+        if (index > 0) const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 2,
+              child: DropdownButtonFormField<String>(
+                initialValue: _additionalEmails[index].label,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Label',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final label in _contactEmailLabels)
+                    DropdownMenuItem(value: label, child: Text(label)),
+                ],
+                onChanged: (value) => setState(
+                  () => _additionalEmails[index].label = value ?? 'Other',
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 3,
+              child: TextFormField(
+                controller: _additionalEmails[index].controller,
+                decoration: const InputDecoration(
+                  labelText: 'Email address',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                textCapitalization: TextCapitalization.none,
+                inputFormatters: _formattersFor('email'),
+                validator: _validateEmailAddress,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Remove email address',
+              onPressed: () => setState(() {
+                _additionalEmails.removeAt(index).dispose();
+              }),
+              icon: const Icon(Icons.remove_circle_outline),
+            ),
+          ],
+        ),
+      ],
+    ],
+  );
+
+  bool _hasContactMethod() =>
+      (_controllers['phone']?.text.trim().isNotEmpty ?? false) ||
+      _additionalPhones.any(
+        (phone) => phone.controller.text.trim().isNotEmpty,
+      ) ||
+      (_controllers['email']?.text.trim().isNotEmpty ?? false) ||
+      _additionalEmails.any((email) => email.controller.text.trim().isNotEmpty);
+
   String _dropdownOptionLabel(String field, String value) {
     final category = switch (field) {
       'preferred_contact_method' => 'preferred_contact',
@@ -900,6 +1092,17 @@ class _RecordFormState extends State<RecordForm> {
                       color: Theme.of(context).colorScheme.error,
                     ),
                   ),
+                if (!widget.organizationForm)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Enter at least one phone number or email address.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ),
                 for (final entry in widget.fields.entries)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 14),
@@ -954,6 +1157,13 @@ class _RecordFormState extends State<RecordForm> {
               ? null
               : () async {
                   if (!_key.currentState!.validate()) return;
+                  if (!widget.organizationForm && !_hasContactMethod()) {
+                    setState(
+                      () => _error =
+                          'Enter at least one phone number or email address.',
+                    );
+                    return;
+                  }
                   final result = Map<String, Object?>.of(widget.values);
                   for (final entry in _controllers.entries) {
                     final text = entry.value.text.trim();
@@ -972,6 +1182,14 @@ class _RecordFormState extends State<RecordForm> {
                           ContactPhoneNumber(
                             label: phone.label,
                             number: phone.controller.text.trim(),
+                          ).toMap(),
+                    ]);
+                    result['additional_emails_json'] = jsonEncode([
+                      for (final email in _additionalEmails)
+                        if (email.controller.text.trim().isNotEmpty)
+                          ContactEmailAddress(
+                            label: email.label,
+                            address: email.controller.text.trim(),
                           ).toMap(),
                     ]);
                     result['children_json'] = jsonEncode(
@@ -1015,6 +1233,16 @@ class _PhoneDraft {
   _PhoneDraft(String label, String number)
     : label = label,
       controller = TextEditingController(text: formatPhoneForEditing(number));
+
+  String label;
+  final TextEditingController controller;
+
+  void dispose() => controller.dispose();
+}
+
+class _EmailDraft {
+  _EmailDraft(this.label, String address)
+    : controller = TextEditingController(text: address);
 
   String label;
   final TextEditingController controller;

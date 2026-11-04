@@ -166,6 +166,10 @@ Future<void> editContact(
         values['is_archived'] = values['status'] == ContactStatus.archived.name
             ? 1
             : 0;
+        values['contact_status'] =
+            values['status'] == ContactStatus.inactive.name
+            ? ContactStatus.inactive.name
+            : ContactStatus.active.name;
         return store.saveContact(Contact.fromMap(values));
       },
       organizations: store.organizations,
@@ -187,6 +191,7 @@ Future<void> editContact(
           'Secondary',
           'Other',
         ],
+        'email_label': ['Primary', 'Work', 'Personal', 'Home', 'Other'],
         'preferred_contact_method': [
           '',
           ...store.profileTags
@@ -211,7 +216,8 @@ Future<void> editContact(
         'title': 'Professional / civilian title',
         'phone': 'Primary phone',
         'additional_phones_json': 'Additional phone numbers',
-        'email': 'Email',
+        'email': 'Primary email',
+        'additional_emails_json': 'Additional email addresses',
         'address': 'Address / Location',
         'spouse_name': 'Spouse name (optional)',
         'children_json': 'Children',
@@ -342,7 +348,10 @@ class _ContactsPageState extends State<ContactsPage> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          RecordStatusIndicator(isActive: !c.isArchived),
+                          RecordStatusIndicator(
+                            isActive: c.status == ContactStatus.active,
+                            contactStatus: c.status,
+                          ),
                         ],
                       ),
                       subtitle: c.title.isEmpty ? null : Text(c.title),
@@ -368,10 +377,31 @@ class _ContactsPageState extends State<ContactsPage> {
   );
 }
 
-class ContactDetail extends StatelessWidget {
+class ContactDetail extends StatefulWidget {
   const ContactDetail({super.key, required this.store, required this.id});
   final CrmStore store;
   final int id;
+
+  @override
+  State<ContactDetail> createState() => _ContactDetailState();
+}
+
+class _ContactDetailState extends State<ContactDetail> {
+  int _selectedPhoneIndex = 0;
+  int _selectedEmailIndex = 0;
+
+  CrmStore get store => widget.store;
+  int get id => widget.id;
+
+  @override
+  void didUpdateWidget(covariant ContactDetail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.id != oldWidget.id) {
+      _selectedPhoneIndex = 0;
+      _selectedEmailIndex = 0;
+    }
+  }
+
   Future<void> _log(
     BuildContext context,
     Contact c, [
@@ -432,6 +462,20 @@ class ContactDetail extends StatelessWidget {
           ),
         );
       }
+      final phoneNumbers = c.phoneNumbers;
+      final emailAddresses = c.emailAddresses;
+      final phoneIndex = _selectedPhoneIndex < phoneNumbers.length
+          ? _selectedPhoneIndex
+          : 0;
+      final emailIndex = _selectedEmailIndex < emailAddresses.length
+          ? _selectedEmailIndex
+          : 0;
+      final selectedPhone = phoneNumbers.isEmpty
+          ? null
+          : phoneNumbers[phoneIndex];
+      final selectedEmail = emailAddresses.isEmpty
+          ? null
+          : emailAddresses[emailIndex];
       final organization = store.organization(c.organizationId);
       final preferredTag = store.profileTags
           .where(
@@ -535,7 +579,10 @@ class ContactDetail extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               ContactPhoto(c, size: 96),
-              RecordStatusIndicator(isActive: !c.isArchived),
+              RecordStatusIndicator(
+                isActive: c.status == ContactStatus.active,
+                contactStatus: c.status,
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -604,23 +651,113 @@ class ContactDetail extends StatelessWidget {
                 : organization.name,
             icon: Icons.business_outlined,
           ),
-          for (final phone in c.phoneNumbers)
-            InfoCard(
-              'Phone · ${phone.label}',
-              formatPhoneForDisplay(phone.number),
-              icon: Icons.phone_outlined,
-              trailing: OutlinedButton.icon(
-                onPressed: () async {
-                  final type = await phoneAction(context, phone.number);
-                  if (type != null && context.mounted) {
-                    await _log(context, c, type);
-                  }
-                },
-                icon: const Icon(Icons.phone_outlined),
-                label: const Text('Call or text'),
-              ),
-            ),
-          InfoCard('Email', c.email, icon: Icons.email_outlined),
+          InfoCard(
+            'Phone',
+            phoneNumbers
+                .map(
+                  (phone) =>
+                      '${phone.label}: ${formatPhoneForDisplay(phone.number)}',
+                )
+                .join('\n'),
+            icon: Icons.phone_outlined,
+            footer: phoneNumbers.isEmpty
+                ? null
+                : Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButton<int>(
+                          value: phoneIndex,
+                          isExpanded: true,
+                          underline: const SizedBox.shrink(),
+                          items: [
+                            for (
+                              var index = 0;
+                              index < phoneNumbers.length;
+                              index++
+                            )
+                              DropdownMenuItem(
+                                value: index,
+                                child: Text(
+                                  '${phoneNumbers[index].label}: ${formatPhoneForDisplay(phoneNumbers[index].number)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (index) {
+                            if (index != null) {
+                              setState(() => _selectedPhoneIndex = index);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: selectedPhone == null
+                            ? null
+                            : () async {
+                                final type = await phoneAction(
+                                  context,
+                                  selectedPhone.number,
+                                );
+                                if (type != null && context.mounted) {
+                                  await _log(context, c, type);
+                                }
+                              },
+                        icon: const Icon(Icons.phone_outlined),
+                        label: const Text('Call or text'),
+                      ),
+                    ],
+                  ),
+          ),
+          InfoCard(
+            'Email',
+            emailAddresses
+                .map((email) => '${email.label}: ${email.address}')
+                .join('\n'),
+            icon: Icons.email_outlined,
+            footer: emailAddresses.isEmpty
+                ? null
+                : Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButton<int>(
+                          value: emailIndex,
+                          isExpanded: true,
+                          underline: const SizedBox.shrink(),
+                          items: [
+                            for (
+                              var index = 0;
+                              index < emailAddresses.length;
+                              index++
+                            )
+                              DropdownMenuItem(
+                                value: index,
+                                child: Text(
+                                  '${emailAddresses[index].label}: ${emailAddresses[index].address}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (index) {
+                            if (index != null) {
+                              setState(() => _selectedEmailIndex = index);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: selectedEmail == null
+                            ? null
+                            : () => emailAction(context, selectedEmail.address),
+                        icon: const Icon(Icons.email_outlined),
+                        label: const Text('Compose email'),
+                      ),
+                    ],
+                  ),
+          ),
           InfoCard(
             'Address / Location',
             c.address,

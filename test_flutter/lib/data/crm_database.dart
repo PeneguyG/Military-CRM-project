@@ -166,7 +166,7 @@ void _migrate(Database db) {
       'SELECT version FROM crm_app_migrations ORDER BY version DESC',
     );
     var version = versions.isEmpty ? 0 : versions.first['version'] as int;
-    if (version > 11)
+    if (version > 13)
       throw StateError('This database requires a newer CRM application.');
     if (version == 0) {
       db.execute('''
@@ -314,6 +314,24 @@ void _migrate(Database db) {
         ]);
       }
       db.execute('INSERT INTO crm_app_migrations(version) VALUES(11);');
+      version = 11;
+    }
+    if (version < 12) {
+      db.execute('''
+        ALTER TABLE contacts ADD COLUMN contact_status TEXT NOT NULL DEFAULT 'active'
+          CHECK(contact_status IN ('active','inactive'));
+        UPDATE contacts SET is_archived=1
+          WHERE status='inactive' AND is_archived=0;
+        INSERT INTO crm_app_migrations(version) VALUES(12);
+      ''');
+      version = 12;
+    }
+    if (version < 13) {
+      db.execute('''
+        ALTER TABLE contacts ADD COLUMN email_label TEXT NOT NULL DEFAULT 'Primary';
+        ALTER TABLE contacts ADD COLUMN additional_emails_json TEXT NOT NULL DEFAULT '[]';
+        INSERT INTO crm_app_migrations(version) VALUES(13);
+      ''');
     }
     db.execute('COMMIT;');
   } catch (_) {
@@ -470,6 +488,8 @@ void _saveContact(Database db, Map<String, Object?> m) {
     'phone_label': 'phone_label',
     'additional_phones_json': 'additional_phones_json',
     'email': 'email',
+    'email_label': 'email_label',
+    'additional_emails_json': 'additional_emails_json',
     'address': 'address',
     'spouse_name': 'spouse_name',
     'children_info': 'children_details',
@@ -479,6 +499,7 @@ void _saveContact(Database db, Map<String, Object?> m) {
     'notes': 'general_notes',
     'talking_points': 'talking_points',
     'status': 'status',
+    'contact_status': 'contact_status',
     'is_archived': 'is_archived',
   };
   final values = <String, Object?>{};
@@ -497,10 +518,10 @@ void _saveContact(Database db, Map<String, Object?> m) {
   for (final entry in fields.entries) {
     if (original == null ||
         !_sameContactValue(entry.key, original[entry.key], m[entry.key])) {
-      // Keep the existing SQLite constraint compatible while the Dart model
-      // and interface use Active/Archived terminology.
-      values[entry.value] = entry.key == 'status' && m['status'] == 'archived'
-          ? 'inactive'
+      // Keep legacy status values compatible; app statuses are stored in the
+      // dedicated contact_status column and archiving remains separate.
+      values[entry.value] = entry.key == 'status'
+          ? (m['status'] == 'archived' ? 'inactive' : 'active')
           : m[entry.key];
     }
   }

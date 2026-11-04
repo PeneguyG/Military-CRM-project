@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-/// Contact lifecycle states shown in the app. Legacy database states are
-/// normalized to [archived] when records are loaded.
-enum ContactStatus { active, archived }
+/// Contact work states; archived contacts are kept out of active lists.
+enum ContactStatus { active, inactive, archived }
 
 // A sentinel distinguishes omitted nullable fields from explicit nulls.
 const _unset = Object();
@@ -216,6 +215,38 @@ class ContactPhoneNumber {
   }
 }
 
+class ContactEmailAddress {
+  const ContactEmailAddress({required this.label, required this.address});
+
+  final String label;
+  final String address;
+
+  Map<String, Object?> toMap() => {'label': label, 'address': address};
+
+  factory ContactEmailAddress.fromMap(Map<Object?, Object?> map) =>
+      ContactEmailAddress(
+        label: map['label']?.toString() ?? 'Other',
+        address: map['address']?.toString() ?? '',
+      );
+
+  static List<ContactEmailAddress> decodeMany(Object? value) {
+    Object? decoded = value;
+    if (value is String) {
+      try {
+        decoded = jsonDecode(value);
+      } on FormatException {
+        return const [];
+      }
+    }
+    if (decoded is! List) return const [];
+    return [
+      for (final item in decoded)
+        if (item is Map)
+          ContactEmailAddress.fromMap(item.cast<Object?, Object?>()),
+    ];
+  }
+}
+
 class Contact {
   const Contact({
     this.id,
@@ -234,6 +265,8 @@ class Contact {
     this.phoneLabel = 'Mobile',
     this.additionalPhones = const [],
     this.email = '',
+    this.emailLabel = 'Primary',
+    this.additionalEmails = const [],
     this.address = '',
     this.spouseName = '',
     this.childrenInfo = '',
@@ -246,7 +279,7 @@ class Contact {
     bool isArchived = false,
   }) : status = status == ContactStatus.archived || isArchived
            ? ContactStatus.archived
-           : ContactStatus.active,
+           : status,
        isArchived = status == ContactStatus.archived || isArchived;
   final int? id, organizationId;
   final String prefix,
@@ -261,6 +294,7 @@ class Contact {
       phone,
       phoneLabel,
       email,
+      emailLabel,
       address,
       spouseName,
       childrenInfo,
@@ -269,6 +303,7 @@ class Contact {
   final String? photoPath;
   final Uint8List? photoBytes;
   final List<ContactPhoneNumber> additionalPhones;
+  final List<ContactEmailAddress> additionalEmails;
   final List<ChildRecord> children;
   final List<int> customTagIds;
   final ContactStatus status;
@@ -280,6 +315,14 @@ class Contact {
         number: phone,
       ),
     ...additionalPhones.where((phone) => phone.number.trim().isNotEmpty),
+  ];
+  List<ContactEmailAddress> get emailAddresses => [
+    if (email.trim().isNotEmpty)
+      ContactEmailAddress(
+        label: emailLabel.trim().isEmpty ? 'Email' : emailLabel,
+        address: email,
+      ),
+    ...additionalEmails.where((email) => email.address.trim().isNotEmpty),
   ];
   String get fullName =>
       [
@@ -307,6 +350,10 @@ class Contact {
       additionalPhones.map((phone) => phone.toMap()).toList(),
     ),
     'email': email,
+    'email_label': emailLabel,
+    'additional_emails_json': jsonEncode(
+      additionalEmails.map((email) => email.toMap()).toList(),
+    ),
     'address': address,
     'spouse_name': spouseName,
     'children_info': childrenInfo,
@@ -318,16 +365,19 @@ class Contact {
     'notes': notes,
     'talking_points': talkingPoints,
     'status': status.name,
+    'contact_status': status == ContactStatus.inactive ? 'inactive' : 'active',
     'is_archived': isArchived ? 1 : 0,
   };
   factory Contact.fromMap(Map<String, Object?> m) {
     final storedStatus = m['status'] as String? ?? 'active';
-    // Older databases used Inactive and Deceased. Inactive remains archived;
-    // deceased is migrated to the separate life-status tag.
+    // Older databases used Inactive to mean archived. The explicit
+    // contact_status field distinguishes the new inactive state.
+    final hasExplicitContactStatus = m.containsKey('contact_status');
+    final storedContactStatus = m['contact_status'] as String? ?? 'active';
     final isArchived =
         m['is_archived'] == 1 ||
-        storedStatus == 'archived' ||
-        storedStatus == 'inactive';
+        (!hasExplicitContactStatus &&
+            (storedStatus == 'archived' || storedStatus == 'inactive'));
 
     return Contact(
       id: m['id'] as int?,
@@ -350,6 +400,10 @@ class Contact {
         m['additional_phones_json'],
       ),
       email: m['email'] as String? ?? '',
+      emailLabel: m['email_label'] as String? ?? 'Primary',
+      additionalEmails: ContactEmailAddress.decodeMany(
+        m['additional_emails_json'],
+      ),
       address: m['address'] as String? ?? '',
       spouseName: m['spouse_name'] as String? ?? '',
       childrenInfo: m['children_info'] as String? ?? '',
@@ -358,7 +412,11 @@ class Contact {
       photoBytes: _readPhotoBytes(m['photo_blob']),
       notes: m['notes'] as String? ?? '',
       talkingPoints: m['talking_points'] as String? ?? '',
-      status: isArchived ? ContactStatus.archived : ContactStatus.active,
+      status: isArchived
+          ? ContactStatus.archived
+          : storedContactStatus == ContactStatus.inactive.name
+          ? ContactStatus.inactive
+          : ContactStatus.active,
       isArchived: isArchived,
     );
   }
@@ -379,6 +437,8 @@ class Contact {
     String? phoneLabel,
     List<ContactPhoneNumber>? additionalPhones,
     String? email,
+    String? emailLabel,
+    List<ContactEmailAddress>? additionalEmails,
     String? address,
     String? spouseName,
     String? childrenInfo,
@@ -398,7 +458,9 @@ class Contact {
             ? this.status
             : isArchived
             ? ContactStatus.archived
-            : ContactStatus.active);
+            : this.status == ContactStatus.archived
+            ? ContactStatus.active
+            : this.status);
     final nextIsArchived =
         isArchived ??
         (status == null ? this.isArchived : status == ContactStatus.archived);
@@ -423,6 +485,8 @@ class Contact {
       phoneLabel: phoneLabel ?? this.phoneLabel,
       additionalPhones: additionalPhones ?? this.additionalPhones,
       email: email ?? this.email,
+      emailLabel: emailLabel ?? this.emailLabel,
+      additionalEmails: additionalEmails ?? this.additionalEmails,
       address: address ?? this.address,
       spouseName: spouseName ?? this.spouseName,
       childrenInfo: childrenInfo ?? this.childrenInfo,

@@ -331,7 +331,10 @@ class OrganizationDetail extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    RecordStatusIndicator(isActive: !c.isArchived),
+                    RecordStatusIndicator(
+                      isActive: c.status == ContactStatus.active,
+                      contactStatus: c.status,
+                    ),
                   ],
                 ),
                 subtitle: Column(

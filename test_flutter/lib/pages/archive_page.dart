@@ -40,9 +40,7 @@ class ArchivePage extends StatelessWidget {
             style: Theme.of(context).textTheme.headlineMedium,
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Archived records are kept here until you mark them Active again.',
-          ),
+          const Text('Archived records are kept here until you restore them.'),
           const SizedBox(height: 24),
           if (contacts.isEmpty && organizations.isEmpty)
             const Card(
@@ -175,7 +173,7 @@ class _ArchivedContactCard extends StatelessWidget {
                   FilledButton.tonalIcon(
                     onPressed: onMarkActive,
                     icon: const Icon(Icons.unarchive_outlined),
-                    label: const Text('Mark active'),
+                    label: const Text('Restore'),
                   ),
                 ],
               ),
