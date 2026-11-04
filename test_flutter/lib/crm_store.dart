@@ -10,16 +10,19 @@ class CrmStore extends ChangeNotifier {
     List<Contact> contacts = const [],
     List<InteractionLog> interactions = const [],
     List<ContactNote> contactNotes = const [],
+    List<OrganizationNote> organizationNotes = const [],
     List<ProfileTagDefinition> profileTags = const [],
   }) : _organizations = List.of(organizations),
        _contacts = List.of(contacts),
        _interactions = List.of(interactions),
        _contactNotes = List.of(contactNotes),
+       _organizationNotes = List.of(organizationNotes),
        _profileTags = List.of(profileTags);
   final List<Organization> _organizations;
   final List<Contact> _contacts;
   final List<InteractionLog> _interactions;
   final List<ContactNote> _contactNotes;
+  final List<OrganizationNote> _organizationNotes;
   final List<ProfileTagDefinition> _profileTags;
   CrmDatabase? _database;
   Future<void> _pending = Future.value();
@@ -43,6 +46,9 @@ class CrmStore extends ChangeNotifier {
     final contactNotes = snapshot['contact_notes']!
         .map(ContactNote.fromMap)
         .toList();
+    final organizationNotes = snapshot['organization_notes']!
+        .map(OrganizationNote.fromMap)
+        .toList();
     final profileTags = snapshot['profile_tags']!
         .map(ProfileTagDefinition.fromMap)
         .toList();
@@ -58,6 +64,9 @@ class CrmStore extends ChangeNotifier {
     _contactNotes
       ..clear()
       ..addAll(contactNotes);
+    _organizationNotes
+      ..clear()
+      ..addAll(organizationNotes);
     _profileTags
       ..clear()
       ..addAll(profileTags);
@@ -103,11 +112,20 @@ class CrmStore extends ChangeNotifier {
   List<Contact> get contacts => List.unmodifiable(_contacts);
   List<InteractionLog> get interactions => List.unmodifiable(_interactions);
   List<ContactNote> get contactNotes => List.unmodifiable(_contactNotes);
+  List<OrganizationNote> get organizationNotes =>
+      List.unmodifiable(_organizationNotes);
   List<ProfileTagDefinition> get profileTags => List.unmodifiable(_profileTags);
   List<ContactNote> notesForContact(int contactId) => List.unmodifiable(
     _contactNotes.where((note) => note.contactId == contactId).toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
   );
+  List<OrganizationNote> notesForOrganization(int organizationId) =>
+      List.unmodifiable(
+        _organizationNotes
+            .where((note) => note.organizationId == organizationId)
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+      );
   Organization? organization(int? id) {
     for (final item in _organizations) {
       if (item.id == id) return item;
@@ -191,6 +209,25 @@ class CrmStore extends ChangeNotifier {
       ContactNote(
         id: _nextId(_contactNotes.map((note) => note.id)),
         contactId: item.contactId,
+        text: item.text.trim(),
+        createdAt: item.createdAt,
+      ),
+    );
+    notifyListeners();
+  }
+
+  Future<void> addOrganizationNote(OrganizationNote item) async {
+    if (organization(item.organizationId) == null || item.text.trim().isEmpty) {
+      throw ArgumentError('A note needs an existing organization and text');
+    }
+    if (_database != null) {
+      await _persist(() => _database!.addOrganizationNote(item));
+      return;
+    }
+    _organizationNotes.add(
+      OrganizationNote(
+        id: _nextId(_organizationNotes.map((note) => note.id)),
+        organizationId: item.organizationId,
         text: item.text.trim(),
         createdAt: item.createdAt,
       ),

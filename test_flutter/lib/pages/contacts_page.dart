@@ -189,6 +189,7 @@ Future<void> editContact(
             .toList(),
       },
       fields: const {
+        'photo_blob': 'Profile photo',
         'prefix': 'Prefix',
         'first_name': 'First name *',
         'last_name': 'Last name *',
@@ -203,7 +204,6 @@ Future<void> editContact(
         'address': 'Address / Location',
         'spouse_name': 'Spouse name (optional)',
         'children_json': 'Children',
-        'photo_blob': 'Profile photo',
         'custom_tags_json': 'Profile tags',
       },
     ),
@@ -241,6 +241,23 @@ class _ContactsPageState extends State<ContactsPage> {
     animation: widget.store,
     builder: (context, _) => LayoutBuilder(
       builder: (context, constraints) {
+        final staleCutoff = DateTime.now().subtract(const Duration(days: 30));
+        final latestInteractionByContact = <int, DateTime>{};
+        final latestCallByContact = <int, DateTime>{};
+        for (final interaction in widget.store.interactions) {
+          final contactId = interaction.contactId;
+          final previous = latestInteractionByContact[contactId];
+          if (previous == null || interaction.date.isAfter(previous)) {
+            latestInteractionByContact[contactId] = interaction.date;
+          }
+          if (interaction.type.toLowerCase() == 'call') {
+            final previousCall = latestCallByContact[contactId];
+            if (previousCall == null ||
+                interaction.date.isAfter(previousCall)) {
+              latestCallByContact[contactId] = interaction.date;
+            }
+          }
+        }
         final items =
             widget.store.contacts
                 .where(
@@ -280,11 +297,32 @@ class _ContactsPageState extends State<ContactsPage> {
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     final c = items[index];
+                    final lastInteraction = latestInteractionByContact[c.id];
+                    final lastCall = latestCallByContact[c.id];
+                    final needsContact =
+                        lastInteraction == null ||
+                        lastCall == null ||
+                        !lastCall.isAfter(staleCutoff);
                     return ListTile(
                       selected: c.id == _selected,
                       leading: ContactPhoto(c, size: 40),
                       title: Row(
                         children: [
+                          if (needsContact) ...[
+                            Tooltip(
+                              message: lastInteraction == null
+                                  ? 'No interactions recorded'
+                                  : lastCall == null
+                                  ? 'No call recorded'
+                                  : 'No call in the last 30 days',
+                              child: const Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.deepOrange,
+                                size: 18,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
                           Expanded(
                             child: Text(
                               c.fullName,
@@ -349,6 +387,9 @@ class ContactDetail extends StatelessWidget {
             followUpDate: result['followUp'] as DateTime?,
             followUpTime: result['followUpTime'] as String?,
             followUpReason: result['followUpReason'] as String? ?? '',
+            attachments:
+                (result['attachments'] as List<InteractionAttachment>?) ??
+                const [],
           ),
         ),
       ),
@@ -480,14 +521,6 @@ class ContactDetail extends StatelessWidget {
             ),
           if (c.title.isNotEmpty)
             Text(c.title, style: Theme.of(context).textTheme.bodyLarge),
-          Text(
-            organization == null
-                ? 'No organization'
-                : organization.isArchived
-                ? 'Archived organization (see Archive tab)'
-                : organization.name,
-          ),
-          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             children: [
@@ -506,17 +539,29 @@ class ContactDetail extends StatelessWidget {
               ),
             ],
           ),
+          const Divider(height: 24),
+          InfoCard(
+            'Organization',
+            organization == null
+                ? 'No organization'
+                : organization.isArchived
+                ? 'Archived organization (see Archive tab)'
+                : organization.name,
+            icon: Icons.business_outlined,
+          ),
           InfoCard(
             'Last interaction',
             logs.isEmpty
                 ? 'No interactions recorded'
                 : '${localizations.formatMediumDate(logs.first.date.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(logs.first.date.toLocal()))} · ${logs.first.type}',
+            icon: Icons.history,
           ),
           if (c.phone.isNotEmpty)
             InfoCard(
               'Phone',
               formatPhoneForDisplay(c.phone),
-              footer: OutlinedButton.icon(
+              icon: Icons.phone_outlined,
+              trailing: OutlinedButton.icon(
                 onPressed: () async {
                   final type = await phoneAction(context, c.phone);
                   if (type != null && context.mounted) {
@@ -527,9 +572,14 @@ class ContactDetail extends StatelessWidget {
                 label: const Text('Call or text'),
               ),
             ),
-          InfoCard('Address / Location', c.address),
-          InfoCard('Email', c.email),
-          if (c.spouseName.isNotEmpty) InfoCard('Spouse', c.spouseName),
+          InfoCard(
+            'Address / Location',
+            c.address,
+            icon: Icons.location_on_outlined,
+          ),
+          InfoCard('Email', c.email, icon: Icons.email_outlined),
+          if (c.spouseName.isNotEmpty)
+            InfoCard('Spouse', c.spouseName, icon: Icons.people_alt_outlined),
           if (c.children.isNotEmpty)
             InfoCard(
               'Children',
@@ -539,9 +589,14 @@ class ContactDetail extends StatelessWidget {
                         '${child.name}${child.age == null ? '' : ' · Age ${child.age}'}',
                   )
                   .join('\n'),
+              icon: Icons.child_care_outlined,
             )
           else if (c.childrenInfo.isNotEmpty)
-            InfoCard('Children', c.childrenInfo),
+            InfoCard(
+              'Children',
+              c.childrenInfo,
+              icon: Icons.child_care_outlined,
+            ),
           const SizedBox(height: 16),
           Align(
             alignment: Alignment.centerLeft,
@@ -558,7 +613,20 @@ class ContactDetail extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Notes', style: Theme.of(context).textTheme.titleMedium),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.sticky_note_2_outlined,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Notes',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   if (contactNotes.isEmpty)
                     const Padding(
@@ -588,9 +656,18 @@ class ContactDetail extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          Text(
-            'Interaction history · newest first',
-            style: Theme.of(context).textTheme.titleLarge,
+          Row(
+            children: [
+              Icon(
+                Icons.forum_outlined,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Interaction history · newest first',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ],
           ),
           if (logs.isEmpty)
             const Padding(
@@ -604,12 +681,41 @@ class ContactDetail extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${log.type} · ${localizations.formatMediumDate(log.date.toLocal())} ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(log.date.toLocal()))}',
-                      style: Theme.of(context).textTheme.titleSmall,
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.forum_outlined,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${log.type} · ${localizations.formatMediumDate(log.date.toLocal())} ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(log.date.toLocal()))}',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     SelectableText(log.summary),
+                    if (log.attachments.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'Attachments',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      for (final attachment in log.attachments)
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(attachmentIcon(attachment.fileName)),
+                          title: Text(attachment.fileName),
+                          subtitle: Text(
+                            formatAttachmentSize(attachment.bytes.length),
+                          ),
+                        ),
+                    ],
                     if (log.followUpDate != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
@@ -663,6 +769,7 @@ class _AddContactNoteDialogState extends State<_AddContactNoteDialog> {
           autofocus: true,
           minLines: 4,
           maxLines: 8,
+          textCapitalization: TextCapitalization.sentences,
           decoration: const InputDecoration(
             labelText: 'Note',
             hintText: 'Add a note to this contact’s profile',
@@ -681,7 +788,7 @@ class _AddContactNoteDialogState extends State<_AddContactNoteDialog> {
       FilledButton(
         onPressed: () {
           if (!_key.currentState!.validate()) return;
-          Navigator.pop(context, _controller.text.trim());
+          Navigator.pop(context, capitalizeInitial(_controller.text));
         },
         child: const Text('Add note'),
       ),

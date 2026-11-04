@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
@@ -10,6 +11,42 @@ import '../models/crm_models.dart';
 import '../phone_number.dart';
 
 String label(String value) => value[0].toUpperCase() + value.substring(1);
+
+String capitalizeInitial(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return trimmed;
+  return '${trimmed[0].toUpperCase()}${trimmed.substring(1)}';
+}
+
+const _namePattern = r"^[\p{L}]+(?:[ '\-][\p{L}]+)*$";
+const _personNameKeys = {'first_name', 'last_name', 'spouse_name', 'title'};
+
+int? _maxCharactersFor(String field) => switch (field) {
+  'first_name' ||
+  'last_name' ||
+  'title' ||
+  'spouse_name' ||
+  'name' ||
+  'industry' ||
+  'email' => 35,
+  _ => null,
+};
+
+List<TextInputFormatter> _formattersFor(String field) {
+  if (field == 'phone') return const [UsPhoneNumberFormatter()];
+  final formatters = <TextInputFormatter>[];
+  if (_personNameKeys.contains(field)) {
+    formatters.add(
+      FilteringTextInputFormatter.allow(RegExp(r"[\p{L} '\-]", unicode: true)),
+    );
+  }
+  final limit = _maxCharactersFor(field);
+  if (limit != null) formatters.add(LengthLimitingTextInputFormatter(limit));
+  return formatters;
+}
+
+bool _isPersonName(String value) =>
+    RegExp(_namePattern, unicode: true).hasMatch(value);
 
 Future<void> runDatabaseAction(
   BuildContext context,
@@ -113,9 +150,17 @@ class ContactPhoto extends StatelessWidget {
 }
 
 class InfoCard extends StatelessWidget {
-  const InfoCard(this.title, this.text, {super.key, this.footer});
+  const InfoCard(
+    this.title,
+    this.text, {
+    super.key,
+    this.icon,
+    this.trailing,
+    this.footer,
+  });
   final String title, text;
-  final Widget? footer;
+  final IconData? icon;
+  final Widget? trailing, footer;
   @override
   Widget build(BuildContext context) => Card(
     child: Padding(
@@ -123,9 +168,39 @@ class InfoCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          SelectableText(text.isEmpty ? 'None recorded' : text),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (icon != null) ...[
+                          Icon(
+                            icon,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(text.isEmpty ? 'None recorded' : text),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+            ],
+          ),
           if (footer != null) ...[const SizedBox(height: 8), footer!],
         ],
       ),
@@ -185,6 +260,28 @@ String formatFollowUpTime(BuildContext context, String? value) {
     return 'Time not set';
   }
   return TimeOfDay(hour: hour, minute: minute).format(context);
+}
+
+String formatAttachmentSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+IconData attachmentIcon(String fileName) {
+  final extension = fileName.split('.').last.toLowerCase();
+  return switch (extension) {
+    'pdf' => Icons.picture_as_pdf_outlined,
+    'doc' || 'docx' || 'txt' || 'rtf' => Icons.description_outlined,
+    'xls' || 'xlsx' || 'csv' => Icons.table_chart_outlined,
+    'jpg' ||
+    'jpeg' ||
+    'png' ||
+    'gif' ||
+    'bmp' ||
+    'webp' => Icons.image_outlined,
+    _ => Icons.attach_file,
+  };
 }
 
 Future<String?> phoneAction(BuildContext context, String phone) async {
@@ -344,6 +441,16 @@ class _RecordFormState extends State<RecordForm> {
         labelText: entry.value,
         border: const OutlineInputBorder(),
       ),
+      textCapitalization: switch (entry.key) {
+        'email' || 'phone' => TextCapitalization.none,
+        'first_name' ||
+        'last_name' ||
+        'spouse_name' ||
+        'title' ||
+        'name' ||
+        'industry' => TextCapitalization.words,
+        _ => TextCapitalization.sentences,
+      },
       minLines: entry.key == 'notes' || entry.key == 'talking_points' ? 3 : 1,
       maxLines:
           entry.key == 'notes' ||
@@ -356,11 +463,17 @@ class _RecordFormState extends State<RecordForm> {
           : entry.key == 'email'
           ? TextInputType.emailAddress
           : TextInputType.text,
-      inputFormatters: entry.key == 'phone'
-          ? const [UsPhoneNumberFormatter()]
-          : null,
+      inputFormatters: _formattersFor(entry.key),
       validator: (value) {
         final text = value?.trim() ?? '';
+        final maxCharacters = _maxCharactersFor(entry.key);
+        if (maxCharacters != null && text.length > maxCharacters) {
+          return 'Use $maxCharacters characters or fewer.';
+        }
+        if (widget.organizationForm && entry.key == 'industry') {
+          if (text.isEmpty) return 'Industry is required.';
+          if (text.length < 2) return 'Enter at least 2 characters.';
+        }
         if (entry.key == 'phone' &&
             text.isNotEmpty &&
             phoneDigits(text).length != 10) {
@@ -370,10 +483,17 @@ class _RecordFormState extends State<RecordForm> {
             text.isEmpty) {
           return 'Required';
         }
-        if (entry.key == 'email' &&
+        if (_personNameKeys.contains(entry.key) &&
             text.isNotEmpty &&
+            !_isPersonName(text)) {
+          return 'Use letters, spaces, hyphens, or apostrophes only.';
+        }
+        if (entry.key == 'email' &&
+            ((widget.organizationForm && text.isEmpty) || text.isNotEmpty) &&
             !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(text)) {
-          return 'Enter a valid email address';
+          return widget.organizationForm && text.isEmpty
+              ? 'Email address is required.'
+              : 'Enter an email with one @ and a dot.';
         }
         return null;
       },
@@ -604,7 +724,11 @@ class _RecordFormState extends State<RecordForm> {
                   if (!_key.currentState!.validate()) return;
                   final result = Map<String, Object?>.of(widget.values);
                   for (final entry in _controllers.entries) {
-                    result[entry.key] = entry.value.text.trim();
+                    final text = entry.value.text.trim();
+                    result[entry.key] =
+                        entry.key == 'email' || entry.key == 'phone'
+                        ? text
+                        : capitalizeInitial(text);
                   }
                   result.addAll(_dropdownValues);
                   if (!widget.organizationForm) {
@@ -692,7 +816,7 @@ class _ChildrenEditorState extends State<ChildrenEditor> {
       for (final row in _rows)
         if (row.name.text.trim().isNotEmpty)
           ChildRecord(
-            name: row.name.text.trim(),
+            name: capitalizeInitial(row.name.text),
             age: int.tryParse(row.age.text.trim()),
           ),
     ]);
@@ -720,6 +844,22 @@ class _ChildrenEditorState extends State<ChildrenEditor> {
                   border: const OutlineInputBorder(),
                 ),
                 textCapitalization: TextCapitalization.words,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                    RegExp(r"[\p{L} '\-]", unicode: true),
+                  ),
+                  LengthLimitingTextInputFormatter(35),
+                ],
+                validator: (value) {
+                  final name = value?.trim() ?? '';
+                  if (name.length > 35) {
+                    return 'Use 35 characters or fewer.';
+                  }
+                  if (name.isNotEmpty && !_isPersonName(name)) {
+                    return 'Use letters, spaces, hyphens, or apostrophes only.';
+                  }
+                  return null;
+                },
                 onChanged: (_) => _notifyChanged(),
               ),
             ),
@@ -781,188 +921,398 @@ class InteractionForm extends StatefulWidget {
 
 class _InteractionFormState extends State<InteractionForm> {
   bool _saving = false;
+  bool _showFollowUp = false;
   String? _error;
   final _key = GlobalKey<FormState>();
   final _summary = TextEditingController();
   final _followUpReason = TextEditingController();
+  final _followUpDateText = TextEditingController();
+  final _followUpTimeText = TextEditingController();
+  final List<InteractionAttachment> _attachments = [];
   late String _type = widget.initialType;
   DateTime? _followUp;
   TimeOfDay? _followUpTime;
+
   @override
   void dispose() {
     _summary.dispose();
     _followUpReason.dispose();
+    _followUpDateText.dispose();
+    _followUpTimeText.dispose();
     super.dispose();
   }
 
+  Future<void> _selectFollowUpDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _followUp ?? today,
+      firstDate: today,
+      lastDate: DateTime(today.year + 20),
+    );
+    if (!mounted || date == null) return;
+    setState(() {
+      _followUp = date;
+      _followUpDateText.text = MaterialLocalizations.of(
+        context,
+      ).formatMediumDate(date);
+      _followUpTime ??= const TimeOfDay(hour: 9, minute: 0);
+      _followUpTimeText.text = _followUpTime!.format(context);
+    });
+  }
+
+  Future<void> _selectFollowUpTime() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: _followUpTime ?? const TimeOfDay(hour: 9, minute: 0),
+    );
+    if (!mounted || time == null) return;
+    setState(() {
+      _followUpTime = time;
+      _followUpTimeText.text = time.format(context);
+    });
+  }
+
+  void _toggleFollowUp() {
+    setState(() {
+      _showFollowUp = !_showFollowUp;
+      if (_showFollowUp) {
+        _followUpTime ??= const TimeOfDay(hour: 9, minute: 0);
+        _followUpTimeText.text = _followUpTime!.format(context);
+      } else {
+        _followUp = null;
+        _followUpTime = null;
+        _followUpDateText.clear();
+        _followUpTimeText.clear();
+        _followUpReason.clear();
+      }
+    });
+  }
+
+  Future<void> _pickAttachments() async {
+    try {
+      final files = await openFiles();
+      if (!mounted || files.isEmpty) return;
+      final picked = <InteractionAttachment>[];
+      for (final file in files) {
+        final bytes = await file.readAsBytes();
+        if (bytes.isNotEmpty) {
+          picked.add(InteractionAttachment(fileName: file.name, bytes: bytes));
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _attachments.addAll(picked);
+        _error = null;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Could not read one or more selected files.');
+      }
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_saving,
-    child: AlertDialog(
-      title: const Text('Log Interaction / Follow-Up'),
-      content: SizedBox(
-        width: 480,
-        child: SingleChildScrollView(
-          child: Form(
-            key: _key,
+  Widget build(BuildContext context) {
+    final viewport = MediaQuery.sizeOf(context);
+    final dialogWidth = math
+        .max(0.0, math.min(960.0, viewport.width - 32))
+        .toDouble();
+    final dialogHeight = math
+        .max(0.0, math.min(900.0, viewport.height - 32))
+        .toDouble();
+
+    return PopScope(
+      canPop: !_saving,
+      child: Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: dialogWidth,
+            maxHeight: dialogHeight,
+          ),
+          child: SizedBox(
+            width: dialogWidth,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (_error != null)
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                const Text(
-                  'Record what happened. Opening a phone app does not confirm a completed call or sent text.',
-                ),
-                DropdownButtonFormField<String>(
-                  initialValue: _type,
-                  items: [
-                    for (final t in InteractionLog.types)
-                      DropdownMenuItem(value: t, child: Text(t)),
-                  ],
-                  onChanged: (v) => setState(() => _type = v!),
-                ),
-                TextFormField(
-                  controller: _summary,
-                  minLines: 3,
-                  maxLines: 6,
-                  decoration: const InputDecoration(labelText: 'Summary'),
-                  validator: (v) =>
-                      v == null || v.trim().isEmpty ? 'Enter a summary' : null,
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    TextButton.icon(
-                      icon: const Icon(Icons.event),
-                      label: Text(
-                        _followUp == null
-                            ? 'Set optional follow-up date'
-                            : MaterialLocalizations.of(
-                                context,
-                              ).formatMediumDate(_followUp!),
-                      ),
-                      onPressed: () async {
-                        final now = DateUtils.dateOnly(DateTime.now());
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: _followUp ?? now,
-                          firstDate: now,
-                          lastDate: DateTime(now.year + 20),
-                        );
-                        if (mounted && date != null) {
-                          setState(() {
-                            _followUp = date;
-                            _followUpTime ??= const TimeOfDay(
-                              hour: 9,
-                              minute: 0,
-                            );
-                          });
-                        }
-                      },
-                    ),
-                    if (_followUp != null)
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.schedule),
-                        label: Text(_followUpTime!.format(context)),
-                        onPressed: () async {
-                          final time = await showTimePicker(
-                            context: context,
-                            initialTime: _followUpTime!,
-                          );
-                          if (mounted && time != null) {
-                            setState(() => _followUpTime = time);
-                          }
-                        },
-                      ),
-                  ],
-                ),
-                if (_followUp != null) ...[
-                  const SizedBox(height: 8),
-                  Align(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+                  child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Follow-up details',
-                      style: Theme.of(context).textTheme.titleSmall,
+                      'Log Interaction',
+                      style: Theme.of(context).textTheme.headlineSmall,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _followUpReason,
-                    minLines: 2,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: 'Reason for follow-up',
-                      hintText: 'What should you discuss or check on?',
-                      border: OutlineInputBorder(),
+                ),
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                    child: Form(
+                      key: _key,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (_error != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Text(
+                                _error!,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ),
+                          const Text(
+                            'Record what happened. Opening a phone app does not confirm a completed call or sent text.',
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            initialValue: _type,
+                            decoration: const InputDecoration(
+                              labelText: 'Interaction type',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              for (final type in InteractionLog.types)
+                                DropdownMenuItem(
+                                  value: type,
+                                  child: Text(type),
+                                ),
+                            ],
+                            onChanged: (value) =>
+                                setState(() => _type = value ?? _type),
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _summary,
+                            minLines: 4,
+                            maxLines: 10,
+                            textCapitalization: TextCapitalization.sentences,
+                            textAlignVertical: TextAlignVertical.top,
+                            decoration: const InputDecoration(
+                              labelText: 'Summary',
+                              alignLabelWithHint: true,
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (value) =>
+                                value == null || value.trim().isEmpty
+                                ? 'Enter a summary'
+                                : null,
+                          ),
+                          const SizedBox(height: 16),
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Attachments',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: _saving ? null : _pickAttachments,
+                                  icon: const Icon(Icons.attach_file),
+                                  label: const Text('Attach files'),
+                                ),
+                                if (_attachments.isEmpty)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 4),
+                                    child: Text('No files attached.'),
+                                  ),
+                                for (
+                                  var index = 0;
+                                  index < _attachments.length;
+                                  index++
+                                )
+                                  ListTile(
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(
+                                      attachmentIcon(
+                                        _attachments[index].fileName,
+                                      ),
+                                    ),
+                                    title: Text(
+                                      _attachments[index].fileName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(
+                                      formatAttachmentSize(
+                                        _attachments[index].bytes.length,
+                                      ),
+                                    ),
+                                    trailing: IconButton(
+                                      tooltip: 'Remove attachment',
+                                      onPressed: _saving
+                                          ? null
+                                          : () => setState(
+                                              () =>
+                                                  _attachments.removeAt(index),
+                                            ),
+                                      icon: const Icon(Icons.close),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton.icon(
+                              onPressed: _saving ? null : _toggleFollowUp,
+                              icon: Icon(
+                                _showFollowUp
+                                    ? Icons.remove_circle_outline
+                                    : Icons.add_alarm,
+                              ),
+                              label: Text(
+                                _showFollowUp
+                                    ? 'Remove follow-up'
+                                    : 'Set follow-up (optional)',
+                              ),
+                            ),
+                          ),
+                          if (_showFollowUp) ...[
+                            const SizedBox(height: 8),
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final dateField = TextFormField(
+                                  controller: _followUpDateText,
+                                  readOnly: true,
+                                  onTap: _selectFollowUpDate,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Follow-up date',
+                                    suffixIcon: Icon(Icons.calendar_month),
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  validator: (_) =>
+                                      _showFollowUp && _followUp == null
+                                      ? 'Choose a date'
+                                      : null,
+                                );
+                                final timeField = TextFormField(
+                                  controller: _followUpTimeText,
+                                  readOnly: true,
+                                  onTap: _selectFollowUpTime,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Follow-up time',
+                                    suffixIcon: Icon(Icons.schedule),
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  validator: (_) =>
+                                      _showFollowUp && _followUpTime == null
+                                      ? 'Choose a time'
+                                      : null,
+                                );
+                                if (constraints.maxWidth < 560) {
+                                  return Column(
+                                    children: [
+                                      dateField,
+                                      const SizedBox(height: 12),
+                                      timeField,
+                                    ],
+                                  );
+                                }
+                                return Row(
+                                  children: [
+                                    Expanded(child: dateField),
+                                    const SizedBox(width: 12),
+                                    Expanded(child: timeField),
+                                  ],
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _followUpReason,
+                              minLines: 2,
+                              maxLines: 4,
+                              textCapitalization: TextCapitalization.sentences,
+                              textAlignVertical: TextAlignVertical.top,
+                              decoration: const InputDecoration(
+                                labelText: 'Reason for follow-up',
+                                alignLabelWithHint: true,
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (value) =>
+                                  _showFollowUp &&
+                                      (value == null || value.trim().isEmpty)
+                                  ? 'Enter a reason for the scheduled follow-up.'
+                                  : null,
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Enter a reason for the scheduled follow-up.'
-                        : null,
                   ),
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _followUp = null;
-                      _followUpTime = null;
-                      _followUpReason.clear();
-                    }),
-                    child: const Text('Clear follow-up'),
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: OverflowBar(
+                    alignment: MainAxisAlignment.end,
+                    spacing: 8,
+                    children: [
+                      TextButton(
+                        onPressed: _saving
+                            ? null
+                            : () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: _saving
+                            ? null
+                            : () async {
+                                if (!_key.currentState!.validate()) return;
+                                final result = <String, Object?>{
+                                  'type': _type,
+                                  'summary': capitalizeInitial(_summary.text),
+                                  'followUp': _showFollowUp ? _followUp : null,
+                                  'followUpTime':
+                                      !_showFollowUp || _followUpTime == null
+                                      ? null
+                                      : '${_followUpTime!.hour.toString().padLeft(2, '0')}:${_followUpTime!.minute.toString().padLeft(2, '0')}',
+                                  'followUpReason': _showFollowUp
+                                      ? capitalizeInitial(_followUpReason.text)
+                                      : '',
+                                  'attachments': List<InteractionAttachment>.of(
+                                    _attachments,
+                                  ),
+                                };
+                                setState(() {
+                                  _saving = true;
+                                  _error = null;
+                                });
+                                try {
+                                  await widget.onSave?.call(result);
+                                  if (context.mounted) {
+                                    setState(() => _saving = false);
+                                    Navigator.pop(context, result);
+                                  }
+                                } catch (_) {
+                                  if (mounted) {
+                                    setState(() {
+                                      _saving = false;
+                                      _error =
+                                          'Save failed. Your summary and attachments are retained. Please try again.';
+                                    });
+                                  }
+                                }
+                              },
+                        child: Text(_saving ? 'Saving…' : 'Save interaction'),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ],
             ),
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _saving
-              ? null
-              : () async {
-                  if (!_key.currentState!.validate()) return;
-                  final result = <String, Object?>{
-                    'type': _type,
-                    'summary': _summary.text.trim(),
-                    'followUp': _followUp,
-                    'followUpTime': _followUp == null
-                        ? null
-                        : '${_followUpTime!.hour.toString().padLeft(2, '0')}:${_followUpTime!.minute.toString().padLeft(2, '0')}',
-                    'followUpReason': _followUp == null
-                        ? ''
-                        : _followUpReason.text.trim(),
-                  };
-                  setState(() {
-                    _saving = true;
-                    _error = null;
-                  });
-                  try {
-                    await widget.onSave?.call(result);
-                    if (context.mounted) {
-                      setState(() => _saving = false);
-                      Navigator.pop(context, result);
-                    }
-                  } catch (_) {
-                    if (mounted)
-                      setState(() {
-                        _saving = false;
-                        _error =
-                            'Save failed. Your summary is retained. Please try again.';
-                      });
-                  }
-                },
-          child: Text(_saving ? 'Saving…' : 'Save interaction'),
-        ),
-      ],
-    ),
-  );
+    );
+  }
 }

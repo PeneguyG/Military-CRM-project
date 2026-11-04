@@ -194,10 +194,14 @@ class _ProfileTagSetting extends StatelessWidget {
                         children: [
                           Text(
                             tag.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           Text(
                             _categoryLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
@@ -214,6 +218,7 @@ class _ProfileTagSetting extends StatelessWidget {
             );
           }
           return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 flex: 2,
@@ -222,10 +227,14 @@ class _ProfileTagSetting extends StatelessWidget {
                   children: [
                     Text(
                       tag.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     Text(
                       _categoryLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -233,8 +242,11 @@ class _ProfileTagSetting extends StatelessWidget {
               ),
               Expanded(flex: 2, child: colorPicker),
               const SizedBox(width: 12),
-              preview,
-              remove,
+              SizedBox(
+                width: 168,
+                child: Align(alignment: Alignment.topLeft, child: preview),
+              ),
+              SizedBox(width: 48, child: remove),
             ],
           );
         },

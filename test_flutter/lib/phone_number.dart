@@ -13,10 +13,10 @@ String formatUsPhoneDigits(String digits) {
   if (limited.length < 3) return '($limited';
   if (limited.length == 3) return '($limited)';
   if (limited.length <= 6) {
-    return '(${limited.substring(0, 3)})${limited.substring(3)}';
+    return '(${limited.substring(0, 3)}) ${limited.substring(3)}';
   }
   return '(${limited.substring(0, 3)})'
-      '${limited.substring(3, 6)}-'
+      ' ${limited.substring(3, 6)}-'
       '${limited.substring(6)}';
 }
 

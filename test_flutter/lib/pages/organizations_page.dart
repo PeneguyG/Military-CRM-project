@@ -21,11 +21,11 @@ Future<void> editOrganization(
       organizationForm: true,
       fields: const {
         'name': 'Organization name *',
-        'industry': 'Industry',
+        'industry': 'Industry *',
         'address': 'Address / Location',
         'phone': 'Phone',
-        'email': 'Email',
-        'notes': 'Notes',
+        'email': 'Email address *',
+        'notes': 'Notes (optional)',
       },
     ),
   );
@@ -148,6 +148,25 @@ class OrganizationDetail extends StatelessWidget {
   final CrmStore store;
   final int id;
   final ValueChanged<Contact> onSelectContact;
+
+  Future<void> _addNote(BuildContext context, Organization organization) async {
+    final text = await showDialog<String>(
+      context: context,
+      builder: (_) => const _AddOrganizationNoteDialog(),
+    );
+    if (text == null || !context.mounted) return;
+    await runDatabaseAction(
+      context,
+      () => store.addOrganizationNote(
+        OrganizationNote(
+          organizationId: organization.id!,
+          text: capitalizeInitial(text),
+          createdAt: DateTime.now(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: store,
@@ -173,16 +192,38 @@ class OrganizationDetail extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  o.name,
-                  style: Theme.of(context).textTheme.headlineMedium,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.business_outlined,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        o.name,
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 12),
               RecordStatusIndicator(isActive: !o.isArchived),
             ],
           ),
-          Text(o.industry),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(
+                Icons.category_outlined,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: Text(o.industry)),
+            ],
+          ),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             children: [
@@ -205,19 +246,46 @@ class OrganizationDetail extends StatelessWidget {
             InfoCard(
               'Phone',
               formatPhoneForDisplay(o.phone),
+              icon: Icons.phone_outlined,
               footer: OutlinedButton.icon(
                 onPressed: () => phoneAction(context, o.phone),
                 icon: const Icon(Icons.phone_outlined),
                 label: const Text('Call or text'),
               ),
             ),
-          InfoCard('Address / Location', o.address),
-          InfoCard('Email', o.email),
-          InfoCard('Notes', o.notes),
+          InfoCard(
+            'Address / Location',
+            o.address,
+            icon: Icons.location_on_outlined,
+          ),
+          InfoCard('Email', o.email, icon: Icons.email_outlined),
           const SizedBox(height: 16),
-          Text(
-            'Associated Contacts (${contacts.length})',
-            style: Theme.of(context).textTheme.titleLarge,
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: () => _addNote(context, o),
+              icon: const Icon(Icons.add),
+              label: const Text('Add note'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _OrganizationNotesCard(
+            legacyNotes: o.notes,
+            notes: store.notesForOrganization(id),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Icon(
+                Icons.people_outline,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Associated Contacts (${contacts.length})',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ],
           ),
           if (contacts.isEmpty)
             const Padding(
@@ -261,5 +329,119 @@ class OrganizationDetail extends StatelessWidget {
         ],
       );
     },
+  );
+}
+
+class _OrganizationNotesCard extends StatelessWidget {
+  const _OrganizationNotesCard({
+    required this.legacyNotes,
+    required this.notes,
+  });
+
+  final String legacyNotes;
+  final List<OrganizationNote> notes;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasLegacyNotes = legacyNotes.trim().isNotEmpty;
+    final localizations = MaterialLocalizations.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.sticky_note_2_outlined,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text('Notes', style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (!hasLegacyNotes && notes.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text('No notes yet.'),
+              ),
+            if (hasLegacyNotes) ...[
+              SelectableText(legacyNotes.trim()),
+              if (notes.isNotEmpty) const Divider(height: 24),
+            ],
+            for (var index = 0; index < notes.length; index++) ...[
+              if (index > 0) const Divider(height: 24),
+              SelectableText(notes[index].text),
+              const SizedBox(height: 4),
+              Text(
+                '${localizations.formatMediumDate(notes[index].createdAt.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(notes[index].createdAt.toLocal()))}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddOrganizationNoteDialog extends StatefulWidget {
+  const _AddOrganizationNoteDialog();
+
+  @override
+  State<_AddOrganizationNoteDialog> createState() =>
+      _AddOrganizationNoteDialogState();
+}
+
+class _AddOrganizationNoteDialogState
+    extends State<_AddOrganizationNoteDialog> {
+  final _key = GlobalKey<FormState>();
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Add organization note'),
+    content: SizedBox(
+      width: 480,
+      child: Form(
+        key: _key,
+        child: TextFormField(
+          controller: _controller,
+          autofocus: true,
+          minLines: 4,
+          maxLines: 8,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Note',
+            hintText: 'Add a note to this organization’s profile',
+            border: OutlineInputBorder(),
+          ),
+          validator: (value) =>
+              value == null || value.trim().isEmpty ? 'Enter a note' : null,
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (!_key.currentState!.validate()) return;
+          Navigator.pop(context, capitalizeInitial(_controller.text));
+        },
+        child: const Text('Add note'),
+      ),
+    ],
   );
 }

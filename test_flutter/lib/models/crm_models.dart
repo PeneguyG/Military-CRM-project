@@ -413,6 +413,64 @@ Uint8List? _readPhotoBytes(Object? value) {
   return null;
 }
 
+class OrganizationNote {
+  const OrganizationNote({
+    this.id,
+    required this.organizationId,
+    required this.text,
+    required this.createdAt,
+  });
+
+  final int? id;
+  final int organizationId;
+  final String text;
+  final DateTime createdAt;
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'organization_id': organizationId,
+    'note_text': text,
+    'created_at': createdAt.toIso8601String(),
+  };
+
+  factory OrganizationNote.fromMap(Map<String, Object?> map) =>
+      OrganizationNote(
+        id: map['id'] as int?,
+        organizationId: map['organization_id'] as int,
+        text: map['note_text']?.toString() ?? '',
+        createdAt: DateTime.parse(map['created_at'] as String),
+      );
+}
+
+class InteractionAttachment {
+  const InteractionAttachment({
+    this.id,
+    required this.fileName,
+    required this.bytes,
+    this.mimeType,
+  });
+
+  final int? id;
+  final String fileName;
+  final Uint8List bytes;
+  final String? mimeType;
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'file_name': fileName,
+    'mime_type': mimeType,
+    'file_blob': bytes,
+  };
+
+  factory InteractionAttachment.fromMap(Map<String, Object?> map) =>
+      InteractionAttachment(
+        id: map['id'] as int?,
+        fileName: map['file_name']?.toString() ?? 'Attachment',
+        mimeType: map['mime_type']?.toString(),
+        bytes: _readPhotoBytes(map['file_blob']) ?? Uint8List(0),
+      );
+}
+
 class InteractionLog {
   const InteractionLog({
     this.id,
@@ -425,6 +483,7 @@ class InteractionLog {
     this.followUpTime,
     this.followUpReason = '',
     this.followUpCompleted = false,
+    this.attachments = const [],
   });
   static const types = ['Call', 'Text', 'In-Person', 'Email'];
   final int? id, organizationId;
@@ -435,6 +494,7 @@ class InteractionLog {
   final DateTime? followUpDate;
   final String? followUpTime;
   final bool followUpCompleted;
+  final List<InteractionAttachment> attachments;
   Map<String, Object?> toMap() => {
     'id': id,
     'contact_id': contactId,
@@ -446,10 +506,12 @@ class InteractionLog {
     'follow_up_time': followUpTime,
     'follow_up_reason': followUpReason,
     'follow_up_completed': followUpCompleted ? 1 : 0,
+    'attachments': attachments.map((attachment) => attachment.toMap()).toList(),
   };
   factory InteractionLog.fromMap(Map<String, Object?> m) {
     final followUpDate = m['follow_up_date']?.toString();
     final rawDate = m['date']?.toString();
+    final rawAttachments = m['attachments'];
     return InteractionLog(
       id: m['id'] as int?,
       contactId: m['contact_id'] as int,
@@ -467,6 +529,15 @@ class InteractionLog {
       followUpTime: m['follow_up_time']?.toString(),
       followUpReason: m['follow_up_reason']?.toString() ?? '',
       followUpCompleted: m['follow_up_completed'] == 1,
+      attachments: rawAttachments is List
+          ? [
+              for (final attachment in rawAttachments)
+                if (attachment is Map)
+                  InteractionAttachment.fromMap(
+                    Map<String, Object?>.from(attachment),
+                  ),
+            ]
+          : const [],
     );
   }
   InteractionLog copyWith({
@@ -480,6 +551,7 @@ class InteractionLog {
     Object? followUpTime = _unset,
     String? followUpReason,
     bool? followUpCompleted,
+    List<InteractionAttachment>? attachments,
   }) => InteractionLog(
     id: identical(id, _unset) ? this.id : id as int?,
     contactId: contactId ?? this.contactId,
@@ -497,5 +569,6 @@ class InteractionLog {
         : followUpTime as String?,
     followUpReason: followUpReason ?? this.followUpReason,
     followUpCompleted: followUpCompleted ?? this.followUpCompleted,
+    attachments: attachments ?? this.attachments,
   );
 }

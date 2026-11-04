@@ -21,6 +21,8 @@ class CrmDatabase {
       _run('contact', item.toMap());
   Future<DatabaseSnapshot> addContactNote(ContactNote item) =>
       _run('contactNote', item.toMap());
+  Future<DatabaseSnapshot> addOrganizationNote(OrganizationNote item) =>
+      _run('organizationNote', item.toMap());
   Future<DatabaseSnapshot> saveProfileTag(ProfileTagDefinition item) =>
       _run('profileTag', item.toMap());
   Future<DatabaseSnapshot> deleteProfileTag(int id) =>
@@ -75,6 +77,14 @@ DatabaseSnapshot _execute(
             data['created_at'] as String,
           ).toUtc().toIso8601String(),
         });
+      case 'organizationNote':
+        _insert(db, 'organization_notes', {
+          'organization_id': data['organization_id'],
+          'note_text': data['note_text'],
+          'created_at': DateTime.parse(
+            data['created_at'] as String,
+          ).toUtc().toIso8601String(),
+        });
       case 'profileTag':
         _saveProfileTag(db, data);
       case 'deleteProfileTag':
@@ -99,6 +109,21 @@ DatabaseSnapshot _execute(
           'follow_up_time': data['follow_up_time'],
           'follow_up_reason': data['follow_up_reason'] ?? '',
         });
+        final interactionId =
+            db.select('SELECT last_insert_rowid() AS id').single['id'] as int;
+        final attachments = data['attachments'];
+        if (attachments is List) {
+          for (final rawAttachment in attachments) {
+            if (rawAttachment is! Map) continue;
+            final attachment = Map<String, Object?>.from(rawAttachment);
+            _insert(db, 'interaction_attachments', {
+              'interaction_id': interactionId,
+              'file_name': attachment['file_name'],
+              'mime_type': attachment['mime_type'],
+              'file_blob': attachment['file_blob'],
+            });
+          }
+        }
       case 'archiveOrganization':
       case 'archiveContact':
         final table = operation == 'archiveOrganization'
@@ -141,7 +166,7 @@ void _migrate(Database db) {
       'SELECT version FROM crm_app_migrations ORDER BY version DESC',
     );
     var version = versions.isEmpty ? 0 : versions.first['version'] as int;
-    if (version > 7)
+    if (version > 9)
       throw StateError('This database requires a newer CRM application.');
     if (version == 0) {
       db.execute('''
@@ -235,6 +260,34 @@ void _migrate(Database db) {
         ALTER TABLE interactions ADD COLUMN follow_up_time TEXT;
         INSERT INTO crm_app_migrations(version) VALUES(7);
       ''');
+      version = 7;
+    }
+    if (version < 8) {
+      db.execute('''
+        CREATE TABLE interaction_attachments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          interaction_id INTEGER NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
+          file_name TEXT NOT NULL,
+          mime_type TEXT,
+          file_blob BLOB NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_interaction_attachments_interaction ON interaction_attachments(interaction_id, id);
+        INSERT INTO crm_app_migrations(version) VALUES(8);
+      ''');
+      version = 8;
+    }
+    if (version < 9) {
+      db.execute('''
+        CREATE TABLE organization_notes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+          note_text TEXT NOT NULL CHECK(length(trim(note_text)) > 0),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_organization_notes_org_created ON organization_notes(organization_id, created_at DESC, id DESC);
+        INSERT INTO crm_app_migrations(version) VALUES(9);
+      ''');
     }
     db.execute('COMMIT;');
   } catch (_) {
@@ -269,45 +322,70 @@ Map<String, Object?> _contact(Map<String, Object?> r) => {
   'children_info': r['children_details'],
   'notes': r['general_notes'],
 };
-DatabaseSnapshot _snapshot(Database db) => {
-  'organizations': db
-      .select('SELECT * FROM organizations ORDER BY id')
-      .map((r) => Organization.fromMap(_organization(r)).toMap())
-      .toList(),
-  'contacts': db
-      .select('SELECT * FROM contacts ORDER BY id')
-      .map((r) => Contact.fromMap(_contact(r)).toMap())
-      .toList(),
-  'interactions': db
-      .select('SELECT * FROM interactions ORDER BY occurred_at, id')
-      .map((r) {
-        final occurredAt = r['occurred_at']?.toString();
-        final safeOccurredAt = occurredAt ?? '1970-01-01 00:00:00';
-        return <String, Object?>{
-          'id': r['id'],
-          'contact_id': r['contact_id'],
-          'organization_id': r['organization_id'],
-          'date': '${safeOccurredAt.replaceFirst(' ', 'T')}Z',
-          'type': r['interaction_type'] == 'In-Person Meeting'
-              ? 'In-Person'
-              : r['interaction_type'] ?? 'Call',
-          'summary': r['summary']?.toString() ?? '',
-          'follow_up_date': r['follow_up_date'],
-          'follow_up_time': r['follow_up_time'],
-          'follow_up_reason': r['follow_up_reason']?.toString() ?? '',
-          'follow_up_completed': r['follow_up_completed'],
-        };
-      })
-      .toList(),
-  'contact_notes': db
-      .select('SELECT * FROM contact_notes ORDER BY created_at DESC, id DESC')
-      .map((r) => Map<String, Object?>.from(r))
-      .toList(),
-  'profile_tags': db
-      .select('SELECT * FROM profile_tag_definitions ORDER BY category, id')
-      .map((r) => Map<String, Object?>.from(r))
-      .toList(),
-};
+DatabaseSnapshot _snapshot(Database db) {
+  final attachmentRows = db.select(
+    'SELECT * FROM interaction_attachments ORDER BY interaction_id, id',
+  );
+  final attachmentsByInteraction = <int, List<Map<String, Object?>>>{};
+  for (final row in attachmentRows) {
+    final interactionId = row['interaction_id'] as int;
+    attachmentsByInteraction
+        .putIfAbsent(interactionId, () => <Map<String, Object?>>[])
+        .add({
+          'id': row['id'],
+          'file_name': row['file_name'],
+          'mime_type': row['mime_type'],
+          'file_blob': row['file_blob'],
+        });
+  }
+
+  return {
+    'organizations': db
+        .select('SELECT * FROM organizations ORDER BY id')
+        .map((r) => Organization.fromMap(_organization(r)).toMap())
+        .toList(),
+    'contacts': db
+        .select('SELECT * FROM contacts ORDER BY id')
+        .map((r) => Contact.fromMap(_contact(r)).toMap())
+        .toList(),
+    'interactions': db
+        .select('SELECT * FROM interactions ORDER BY occurred_at, id')
+        .map((r) {
+          final occurredAt = r['occurred_at']?.toString();
+          final safeOccurredAt = occurredAt ?? '1970-01-01 00:00:00';
+          return <String, Object?>{
+            'id': r['id'],
+            'contact_id': r['contact_id'],
+            'organization_id': r['organization_id'],
+            'date': '${safeOccurredAt.replaceFirst(' ', 'T')}Z',
+            'type': r['interaction_type'] == 'In-Person Meeting'
+                ? 'In-Person'
+                : r['interaction_type'] ?? 'Call',
+            'summary': r['summary']?.toString() ?? '',
+            'follow_up_date': r['follow_up_date'],
+            'follow_up_time': r['follow_up_time'],
+            'follow_up_reason': r['follow_up_reason']?.toString() ?? '',
+            'follow_up_completed': r['follow_up_completed'],
+            'attachments': attachmentsByInteraction[r['id'] as int] ?? const [],
+          };
+        })
+        .toList(),
+    'contact_notes': db
+        .select('SELECT * FROM contact_notes ORDER BY created_at DESC, id DESC')
+        .map((r) => Map<String, Object?>.from(r))
+        .toList(),
+    'organization_notes': db
+        .select(
+          'SELECT * FROM organization_notes ORDER BY created_at DESC, id DESC',
+        )
+        .map((r) => Map<String, Object?>.from(r))
+        .toList(),
+    'profile_tags': db
+        .select('SELECT * FROM profile_tag_definitions ORDER BY category, id')
+        .map((r) => Map<String, Object?>.from(r))
+        .toList(),
+  };
+}
 
 void _saveOrganization(Database db, Map<String, Object?> m) {
   final values = {
