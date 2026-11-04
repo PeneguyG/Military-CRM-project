@@ -1,3 +1,7 @@
+import 'pages/offline_map_page.dart';
+import 'dart:io';
+import 'package:flutter_quill/flutter_quill.dart'
+    show FlutterQuillLocalizations;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -51,7 +55,16 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
     final databasePath = override.isNotEmpty
         ? p.absolute(override)
         : p.join(
-            (await getApplicationSupportDirectory()).path,
+            Platform.isWindows
+                ? p.join(
+                    Platform.environment['APPDATA'] ??
+                        (throw StateError(
+                          'Windows application-data folder is unavailable.',
+                        )),
+                    'com.example',
+                    'Steel Wings CRM',
+                  )
+                : (await getApplicationSupportDirectory()).path,
             'MilitaryCRM',
             'military_crm.sqlite3',
           );
@@ -96,6 +109,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
         (hour >= 6 && hour < 18 ? ThemeMode.light : ThemeMode.dark);
     return MaterialApp(
       title: 'Steel Wings CRM',
+      localizationsDelegates: const [FlutterQuillLocalizations.delegate],
       debugShowCheckedModeBanner: false,
       themeMode: mode,
       theme: ThemeData(
@@ -123,7 +137,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text(
-                              'Could not open the local database. Check that its folder is writable and the database is not locked.',
+                              'Could not open the protected database. Use the original Windows account and preserve the database and key files.',
                             ),
                             const SizedBox(height: 12),
                             SelectableText('${snapshot.error}'),
@@ -350,6 +364,10 @@ class _CrmHomePageState extends State<CrmHomePage> {
   // mounted in the IndexedStack.
   int _contactNavigation = 0;
   int? _contactId;
+  int? _organizationId;
+  int _organizationNavigation = 0;
+  String? _mapFocus;
+  int _mapRevision = 0;
 
   CrmStore get _store => widget.store;
 
@@ -360,10 +378,34 @@ class _CrmHomePageState extends State<CrmHomePage> {
 
   /// Opens a contact in the existing Contacts page.
   void _openContact(Contact contact) {
+    if (contact.isArchived) {
+      editContact(context, _store, contact);
+      return;
+    }
     setState(() {
       _contactId = contact.id;
       _contactNavigation++;
       _tab = 1; // Contacts follows Home in the destination list.
+    });
+  }
+
+  void _openOrganization(Organization organization) {
+    if (organization.isArchived) {
+      editOrganization(context, _store, organization);
+      return;
+    }
+    setState(() {
+      _organizationId = organization.id;
+      _organizationNavigation++;
+      _tab = 2;
+    });
+  }
+
+  void _viewMap(String key) {
+    setState(() {
+      _mapFocus = key;
+      _mapRevision++;
+      _tab = 3;
     });
   }
 
@@ -489,14 +531,23 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             key: ValueKey(_contactNavigation),
                             store: _store,
                             initialContactId: _contactId,
+                            onViewMap: _viewMap,
                           ),
                           OrganizationsPage(
+                            key: ValueKey(
+                              'organization:$_organizationNavigation',
+                            ),
+                            initialOrganizationId: _organizationId,
+                            onViewMap: _viewMap,
                             store: _store,
                             onSelectContact: _openContact,
                           ),
-                          _SectionPlaceholder(
-                            title: _destinations[3].label,
-                            icon: _destinations[3].icon,
+                          OfflineMapPage(
+                            store: _store,
+                            onOpenContact: _openContact,
+                            onOpenOrganization: _openOrganization,
+                            focusRecordKey: _mapFocus,
+                            focusRevision: _mapRevision,
                           ),
                           _SectionPlaceholder(
                             title: _destinations[4].label,

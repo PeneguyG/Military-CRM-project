@@ -1,3 +1,6 @@
+import 'rich_text_widgets.dart';
+import '../utils/rich_text_content.dart';
+import '../utils/soundex_helper.dart';
 import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
@@ -24,6 +27,8 @@ Future<void> editOrganization(
         'name': 'Organization name *',
         'industry': 'Industry *',
         'address': 'Address / Location',
+        'latitude': 'Latitude',
+        'longitude': 'Longitude',
         'phone': 'Phone',
         'email': 'Email address *',
         'notes': 'Notes (optional)',
@@ -37,16 +42,47 @@ class OrganizationsPage extends StatefulWidget {
     super.key,
     required this.store,
     required this.onSelectContact,
+    this.onViewMap,
+    this.initialOrganizationId,
   });
+  final int? initialOrganizationId;
   final CrmStore store;
   final ValueChanged<Contact> onSelectContact;
+  final ValueChanged<String>? onViewMap;
   @override
   State<OrganizationsPage> createState() => _OrganizationsPageState();
 }
 
 class _OrganizationsPageState extends State<OrganizationsPage> {
+  String _extraText(Organization o) => [
+    if (o.id != null)
+      widget.store
+          .notesForOrganization(o.id!)
+          .map((n) => RichTextContent.plainText(n.text))
+          .join(' '),
+  ].join(' ');
+  String _searchText(Organization o) => '${o.searchText} ${_extraText(o)}';
   String _search = '';
-  int? _selected;
+  late int? _selected = widget.initialOrganizationId;
+  @override
+  void initState() {
+    super.initState();
+    if (_selected != null)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && context.size != null && context.size!.width < 850)
+          openDetail(
+            context,
+            OrganizationDetail(
+              store: widget.store,
+              id: _selected!,
+              onSelectContact: widget.onSelectContact,
+              onViewMap: widget.onViewMap,
+            ),
+            'Organization',
+          );
+      });
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.store,
@@ -57,12 +93,12 @@ class _OrganizationsPageState extends State<OrganizationsPage> {
                 .where(
                   (o) =>
                       !o.isArchived &&
-                      [
-                        o.name,
-                        o.industry,
-                        o.address,
-                        o.notes,
-                      ].join(' ').toLowerCase().contains(_search),
+                      SoundexHelper.matchesQuery(
+                        _search,
+                        rawTargetText: _searchText(o),
+                        precomputedSoundex:
+                            '${o.soundexIndex} ${SoundexHelper.encodePhrase(_extraText(o))}',
+                      ),
                 )
                 .toList()
               ..sort(
@@ -115,6 +151,7 @@ class _OrganizationsPageState extends State<OrganizationsPage> {
                             context,
                             OrganizationDetail(
                               store: widget.store,
+                              onViewMap: widget.onViewMap,
                               id: o.id!,
                               onSelectContact: (c) {
                                 Navigator.of(context).pop();
@@ -132,6 +169,7 @@ class _OrganizationsPageState extends State<OrganizationsPage> {
               : OrganizationDetail(
                   store: widget.store,
                   id: selected.id!,
+                  onViewMap: widget.onViewMap,
                   onSelectContact: widget.onSelectContact,
                 ),
         );
@@ -146,10 +184,12 @@ class OrganizationDetail extends StatelessWidget {
     required this.store,
     required this.id,
     required this.onSelectContact,
+    this.onViewMap,
   });
   final CrmStore store;
   final int id;
   final ValueChanged<Contact> onSelectContact;
+  final ValueChanged<String>? onViewMap;
 
   Future<void> _addNote(BuildContext context, Organization organization) async {
     final text = await showDialog<String>(
@@ -196,6 +236,15 @@ class OrganizationDetail extends StatelessWidget {
             icon: const Icon(Icons.edit),
             label: const Text('Edit'),
           ),
+          if (onViewMap != null)
+            OutlinedButton.icon(
+              onPressed: () {
+                if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+                onViewMap!('org:${o.id}');
+              },
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('View on Map'),
+            ),
           OutlinedButton.icon(
             onPressed: () => runDatabaseAction(
               context,
@@ -397,12 +446,12 @@ class _OrganizationNotesCard extends StatelessWidget {
                 child: Text('No notes yet.'),
               ),
             if (hasLegacyNotes) ...[
-              SelectableText(legacyNotes.trim()),
+              RichTextView(legacyNotes.trim()),
               if (notes.isNotEmpty) const Divider(height: 24),
             ],
             for (var index = 0; index < notes.length; index++) ...[
               if (index > 0) const Divider(height: 24),
-              SelectableText(notes[index].text),
+              RichTextView(notes[index].text),
               const SizedBox(height: 4),
               Text(
                 '${localizations.formatMediumDate(notes[index].createdAt.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(notes[index].createdAt.toLocal()))}',
@@ -438,23 +487,15 @@ class _AddOrganizationNoteDialogState
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Add organization note'),
+    scrollable: true,
     content: SizedBox(
-      width: 480,
+      width: 600,
       child: Form(
         key: _key,
-        child: TextFormField(
+        child: RichTextEditor(
           controller: _controller,
-          autofocus: true,
-          minLines: 4,
-          maxLines: 8,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            labelText: 'Note',
-            hintText: 'Add a note to this organization’s profile',
-            border: OutlineInputBorder(),
-          ),
-          validator: (value) =>
-              value == null || value.trim().isEmpty ? 'Enter a note' : null,
+          label: 'Note',
+          required: true,
         ),
       ),
     ),

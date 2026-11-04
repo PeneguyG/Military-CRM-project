@@ -1,20 +1,39 @@
+import '../utils/offline_map_helper.dart';
+import 'database_encryption.dart';
+import 'database_key_store.dart';
+import '../utils/utc_time.dart';
+import 'soundex_samples.dart';
+import '../utils/rich_text_content.dart';
+import '../utils/crm_search_queries.dart';
+import '../utils/soundex_helper.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'package:sqlite3/sqlite3.dart';
 import '../models/crm_models.dart';
 
+const crmSchemaVersion = 16;
+
 typedef DatabaseSnapshot = Map<String, List<Map<String, Object?>>>;
 
 /// Each operation owns a short-lived connection in a background isolate.
-/// SQLite's transactions serialize writers, including the Python helper.
+/// Production connections require the account-protected encryption key.
 class CrmDatabase {
-  const CrmDatabase(this.path);
+  factory CrmDatabase(String path) =>
+      CrmDatabase._(path, DatabaseKeyStore.loadOrCreate(path));
+  const CrmDatabase._(this.path, this._encryptionKey);
+
+  /// Explicit opt-out only for isolated tests of legacy schemas.
+  const CrmDatabase.unencryptedForTesting(this.path) : _encryptionKey = null;
+  final String? _encryptionKey;
   final String path;
 
   Future<DatabaseSnapshot> initialize(String schema) =>
       _run('initialize', {'schema': schema});
+  Future<DatabaseSnapshot> saveMapSettings(Map<String, Object?> settings) =>
+      _run('mapSettings', settings);
   Future<DatabaseSnapshot> load() => _run('load', {});
+  Future<DatabaseSnapshot> loadSoundexSamples() => _run('soundexSamples', {});
   Future<DatabaseSnapshot> saveOrganization(Organization item) =>
       _run('organization', item.toMap());
   Future<DatabaseSnapshot> saveContact(Contact item) =>
@@ -36,121 +55,178 @@ class CrmDatabase {
 
   Future<DatabaseSnapshot> _run(String operation, Map<String, Object?> data) {
     final databasePath = path;
-    return Isolate.run(() => _execute(databasePath, operation, data));
+    final encryptionKey = _encryptionKey;
+    return Isolate.run(
+      () => _execute(databasePath, operation, data, encryptionKey),
+    );
   }
 }
 
-DatabaseSnapshot _execute(
+Future<DatabaseSnapshot> _execute(
   String path,
   String operation,
   Map<String, Object?> data,
-) {
+  String? encryptionKey,
+) async {
   if (operation == 'initialize') File(path).parent.createSync(recursive: true);
-  final db = sqlite3.open(path);
+  final lock = File('$path.operation.lock').openSync(mode: FileMode.append);
+  lock.lockSync(FileLock.blockingExclusive);
+  Database? connection;
   try {
-    db.execute('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 10000;');
-    if (operation == 'initialize') {
-      db.execute('PRAGMA journal_mode = WAL;');
-      final tables = db.select(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    final db = connection = encryptionKey == null
+        ? sqlite3.open(path)
+        : await openEncryptedDatabase(path, encryptionKey);
+    try {
+      db.execute('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 10000;');
+      if (operation == 'initialize') {
+        db.execute('PRAGMA journal_mode = WAL;');
+        final tables = db.select(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+        );
+        if (tables.isEmpty) db.execute(data['schema'] as String);
+        if (db.userVersion != 1)
+          throw StateError('Unsupported CRM schema version ${db.userVersion}.');
+        if (encryptionKey != null && tables.isNotEmpty) {
+          final migrationTable = db.select(
+            "SELECT name FROM sqlite_master WHERE name='crm_app_migrations'",
+          );
+          final version = migrationTable.isEmpty
+              ? 0
+              : db
+                            .select(
+                              'SELECT MAX(version) AS version FROM crm_app_migrations',
+                            )
+                            .single['version']
+                        as int? ??
+                    0;
+          if (version < crmSchemaVersion)
+            await encryptedBackup(
+              db,
+              '$path.pre-v$crmSchemaVersion.enc',
+              encryptionKey,
+            );
+        }
+        _migrate(db);
+      }
+      db.execute(
+        operation == 'load' || operation == 'initialize'
+            ? 'BEGIN;'
+            : 'BEGIN IMMEDIATE;',
       );
-      if (tables.isEmpty) db.execute(data['schema'] as String);
-      if (db.userVersion != 1)
-        throw StateError('Unsupported CRM schema version ${db.userVersion}.');
-      _migrate(db);
-    }
-    db.execute(
-      operation == 'load' || operation == 'initialize'
-          ? 'BEGIN;'
-          : 'BEGIN IMMEDIATE;',
-    );
-    switch (operation) {
-      case 'organization':
-        _saveOrganization(db, data);
-      case 'contact':
-        _saveContact(db, data);
-      case 'contactNote':
-        _insert(db, 'contact_notes', {
-          'contact_id': data['contact_id'],
-          'note_text': data['note_text'],
-          'created_at': DateTime.parse(
-            data['created_at'] as String,
-          ).toUtc().toIso8601String(),
-        });
-      case 'organizationNote':
-        _insert(db, 'organization_notes', {
-          'organization_id': data['organization_id'],
-          'note_text': data['note_text'],
-          'created_at': DateTime.parse(
-            data['created_at'] as String,
-          ).toUtc().toIso8601String(),
-        });
-      case 'profileTag':
-        _saveProfileTag(db, data);
-      case 'deleteProfileTag':
-        _deleteProfileTag(db, data['id'] as int);
-      case 'interaction':
-        final followUp = data['follow_up_date'] as String?;
-        _insert(db, 'interactions', {
-          'contact_id': data['contact_id'],
-          'organization_id': data['organization_id'],
-          'interaction_type': data['type'] == 'In-Person'
-              ? 'In-Person Meeting'
-              : data['type'],
-          'direction': 'Outbound',
-          'occurred_at': DateTime.parse(data['date'] as String)
-              .toUtc()
-              .toIso8601String()
-              .replaceFirst('T', ' ')
-              .replaceAll('Z', ''),
-          'summary': data['summary'],
-          'follow_up_required': followUp == null ? 0 : 1,
-          'follow_up_date': followUp?.substring(0, 10),
-          'follow_up_time': data['follow_up_time'],
-          'follow_up_reason': data['follow_up_reason'] ?? '',
-        });
-        final interactionId =
-            db.select('SELECT last_insert_rowid() AS id').single['id'] as int;
-        final attachments = data['attachments'];
-        if (attachments is List) {
-          for (final rawAttachment in attachments) {
-            if (rawAttachment is! Map) continue;
-            final attachment = Map<String, Object?>.from(rawAttachment);
-            _insert(db, 'interaction_attachments', {
-              'interaction_id': interactionId,
-              'file_name': attachment['file_name'],
-              'mime_type': attachment['mime_type'],
-              'file_blob': attachment['file_blob'],
-            });
+      switch (operation) {
+        case 'mapSettings':
+          for (final entry in data.entries) {
+            if (entry.key != 'user_location')
+              throw ArgumentError('Unknown map setting');
+            db.execute(
+              'INSERT INTO map_settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+              [entry.key, entry.value],
+            );
           }
-        }
-      case 'archiveOrganization':
-      case 'archiveContact':
-        final table = operation == 'archiveOrganization'
-            ? 'organizations'
-            : 'contacts';
-        final values = <String, Object?>{'is_archived': data['archived']};
-        // The original SQLite CHECK constraint predates the app's Archived
-        // status. Store Archived as its legacy Inactive value while exposing
-        // the newer status through Contact.fromMap.
-        if (table == 'contacts') {
-          values['status'] = data['archived'] == 1 ? 'inactive' : 'active';
-        }
-        _update(db, table, data['id'] as int, values);
-      case 'initialize':
-      case 'load':
-        break;
-      default:
-        throw ArgumentError('Unknown database operation');
+        case 'soundexSamples':
+          _loadSoundexSamples(db);
+        case 'organization':
+          _saveOrganization(db, data);
+        case 'contact':
+          _saveContact(db, data);
+        case 'contactNote':
+          _insert(db, 'contact_notes', {
+            'contact_id': data['contact_id'],
+            'note_text': data['note_text'],
+            'soundex_index': SoundexHelper.encodePhrase(
+              RichTextContent.plainText(data['note_text'] as String),
+            ),
+            'created_at': DateTime.parse(
+              data['created_at'] as String,
+            ).toUtc().toIso8601String(),
+          });
+        case 'organizationNote':
+          _insert(db, 'organization_notes', {
+            'organization_id': data['organization_id'],
+            'note_text': data['note_text'],
+            'soundex_index': SoundexHelper.encodePhrase(
+              RichTextContent.plainText(data['note_text'] as String),
+            ),
+            'created_at': DateTime.parse(
+              data['created_at'] as String,
+            ).toUtc().toIso8601String(),
+          });
+        case 'profileTag':
+          _saveProfileTag(db, data);
+        case 'deleteProfileTag':
+          _deleteProfileTag(db, data['id'] as int);
+        case 'interaction':
+          final followUp = data['follow_up_date'] as String?;
+          _insert(db, 'interactions', {
+            'contact_id': data['contact_id'],
+            'organization_id': data['organization_id'],
+            'interaction_type': data['type'] == 'In-Person'
+                ? 'In-Person Meeting'
+                : data['type'],
+            'direction': 'Outbound',
+            'occurred_at': DateTime.parse(data['date'] as String)
+                .toUtc()
+                .toIso8601String()
+                .replaceFirst('T', ' ')
+                .replaceAll('Z', ''),
+            'summary': data['summary'],
+            'follow_up_required': followUp == null ? 0 : 1,
+            'follow_up_date': followUp?.substring(0, 10),
+            'follow_up_time': data['follow_up_time'],
+            'follow_up_at_utc': followUpUtc(
+              followUp,
+              data['follow_up_time'] as String?,
+            ),
+            'follow_up_reason': data['follow_up_reason'] ?? '',
+          });
+          final interactionId =
+              db.select('SELECT last_insert_rowid() AS id').single['id'] as int;
+          final attachments = data['attachments'];
+          if (attachments is List) {
+            for (final rawAttachment in attachments) {
+              if (rawAttachment is! Map) continue;
+              final attachment = Map<String, Object?>.from(rawAttachment);
+              _insert(db, 'interaction_attachments', {
+                'interaction_id': interactionId,
+                'file_name': attachment['file_name'],
+                'mime_type': attachment['mime_type'],
+                'file_blob': attachment['file_blob'],
+              });
+            }
+          }
+        case 'archiveOrganization':
+        case 'archiveContact':
+          final table = operation == 'archiveOrganization'
+              ? 'organizations'
+              : 'contacts';
+          final values = <String, Object?>{'is_archived': data['archived']};
+          // The original SQLite CHECK constraint predates the app's Archived
+          // status. Store Archived as its legacy Inactive value while exposing
+          // the newer status through Contact.fromMap.
+          if (table == 'contacts') {
+            values['status'] = data['archived'] == 1 ? 'inactive' : 'active';
+          }
+          _update(db, table, data['id'] as int, values);
+        case 'initialize':
+        case 'load':
+          break;
+        default:
+          throw ArgumentError('Unknown database operation');
+      }
+      final snapshot = _snapshot(db);
+      db.execute('COMMIT;');
+      return snapshot;
+    } catch (_) {
+      if (!db.autocommit) db.execute('ROLLBACK;');
+      rethrow;
+    } finally {
+      db.close();
+      connection = null;
     }
-    final snapshot = _snapshot(db);
-    db.execute('COMMIT;');
-    return snapshot;
-  } catch (_) {
-    if (!db.autocommit) db.execute('ROLLBACK;');
-    rethrow;
   } finally {
-    db.close();
+    connection?.close();
+    lock.unlockSync();
+    lock.closeSync();
   }
 }
 
@@ -166,7 +242,7 @@ void _migrate(Database db) {
       'SELECT version FROM crm_app_migrations ORDER BY version DESC',
     );
     var version = versions.isEmpty ? 0 : versions.first['version'] as int;
-    if (version > 13)
+    if (version > crmSchemaVersion)
       throw StateError('This database requires a newer CRM application.');
     if (version == 0) {
       db.execute('''
@@ -333,6 +409,95 @@ void _migrate(Database db) {
         INSERT INTO crm_app_migrations(version) VALUES(13);
       ''');
     }
+    if (version < 14) {
+      for (final statement in soundexMigrations) {
+        db.execute(statement);
+      }
+      for (final row in db.select('SELECT * FROM organizations')) {
+        _update(db, 'organizations', row['id'] as int, {
+          'soundex_index': Organization.fromMap(
+            _organization(row),
+          ).soundexIndex,
+        });
+      }
+      for (final row in db.select('SELECT * FROM contacts')) {
+        final contact = Contact.fromMap(_contact(row));
+        _update(db, 'contacts', row['id'] as int, {
+          'name_soundex': contact.nameSoundex,
+          'soundex_index': contact.fullSoundexIndex,
+        });
+      }
+      for (final table in ['contact_notes', 'organization_notes']) {
+        for (final row in db.select('SELECT id, note_text FROM $table')) {
+          _update(db, table, row['id'] as int, {
+            'soundex_index': SoundexHelper.encodePhrase(
+              RichTextContent.plainText(row['note_text'] as String),
+            ),
+          });
+        }
+      }
+      db.execute('INSERT INTO crm_app_migrations(version) VALUES(14)');
+    }
+    if (version < 15) {
+      db.execute('ALTER TABLE interactions ADD COLUMN follow_up_at_utc TEXT');
+      // Legacy schedules are wall-clock values in the current device timezone.
+      // Preserve their intended local appointment time when deriving UTC.
+      for (final row in db.select(
+        'SELECT id, follow_up_date, follow_up_time FROM interactions WHERE follow_up_date IS NOT NULL AND follow_up_time IS NOT NULL',
+      )) {
+        final utc = followUpUtc(
+          row['follow_up_date'] as String?,
+          row['follow_up_time'] as String?,
+        );
+        db.execute('UPDATE interactions SET follow_up_at_utc=? WHERE id=?', [
+          utc,
+          row['id'],
+        ]);
+      }
+      db.execute('INSERT INTO crm_app_migrations(version) VALUES(15)');
+    }
+    if (version < 16) {
+      for (final table in ['organizations', 'contacts']) {
+        db.execute(
+          'ALTER TABLE $table ADD COLUMN latitude REAL CHECK(latitude BETWEEN -90 AND 90)',
+        );
+        db.execute(
+          'ALTER TABLE $table ADD COLUMN longitude REAL CHECK(longitude BETWEEN -180 AND 180)',
+        );
+        db.execute(
+          "ALTER TABLE $table ADD COLUMN coordinate_source TEXT NOT NULL DEFAULT ''",
+        );
+        for (final row in db.select('SELECT * FROM $table')) {
+          final sampleMaps = table == 'organizations'
+              ? SoundexSamples.organizations.map((o) => o.toMap())
+              : SoundexSamples.contacts([0, 0, 0], 0).map((c) => c.toMap());
+          final sample = sampleMaps
+              .where(
+                (sample) =>
+                    sample['address'] == _address(row) &&
+                    (table == 'organizations'
+                        ? sample['name'] == row['name']
+                        : sample['email'] == row['email']),
+              )
+              .firstOrNull;
+          final match = OfflineMapHelper.resolve(_address(row));
+          if (sample != null) {
+            _update(db, table, row['id'] as int, {
+              'latitude': sample['latitude'],
+              'longitude': sample['longitude'],
+              'coordinate_source': 'Fictional demo pin',
+            });
+          } else if (match != null)
+            _update(db, table, row['id'] as int, {
+              'latitude': match.point.latitude,
+              'longitude': match.point.longitude,
+              'coordinate_source': match.precision,
+            });
+        }
+      }
+      db.execute('CREATE TABLE map_settings(key TEXT PRIMARY KEY, value TEXT)');
+      db.execute('INSERT INTO crm_app_migrations(version) VALUES(16)');
+    }
     db.execute('COMMIT;');
   } catch (_) {
     db.execute('ROLLBACK;');
@@ -384,6 +549,10 @@ DatabaseSnapshot _snapshot(Database db) {
   }
 
   return {
+    'map_settings': db
+        .select('SELECT key, value FROM map_settings')
+        .map((r) => Map<String, Object?>.from(r))
+        .toList(),
     'organizations': db
         .select('SELECT * FROM organizations ORDER BY id')
         .map((r) => Organization.fromMap(_organization(r)).toMap())
@@ -397,17 +566,24 @@ DatabaseSnapshot _snapshot(Database db) {
         .map((r) {
           final occurredAt = r['occurred_at']?.toString();
           final safeOccurredAt = occurredAt ?? '1970-01-01 00:00:00';
+          final scheduled = r['follow_up_at_utc'] == null
+              ? null
+              : parseUtcTimestamp(r['follow_up_at_utc'] as String).toLocal();
           return <String, Object?>{
             'id': r['id'],
             'contact_id': r['contact_id'],
             'organization_id': r['organization_id'],
-            'date': '${safeOccurredAt.replaceFirst(' ', 'T')}Z',
+            'date': parseUtcTimestamp(safeOccurredAt).toIso8601String(),
             'type': r['interaction_type'] == 'In-Person Meeting'
                 ? 'In-Person'
                 : r['interaction_type'] ?? 'Call',
             'summary': r['summary']?.toString() ?? '',
-            'follow_up_date': r['follow_up_date'],
-            'follow_up_time': r['follow_up_time'],
+            'follow_up_date':
+                scheduled?.toIso8601String().substring(0, 10) ??
+                r['follow_up_date'],
+            'follow_up_time': scheduled == null
+                ? r['follow_up_time']
+                : '${scheduled.hour.toString().padLeft(2, '0')}:${scheduled.minute.toString().padLeft(2, '0')}',
             'follow_up_reason': r['follow_up_reason']?.toString() ?? '',
             'follow_up_completed': r['follow_up_completed'],
             'attachments': attachmentsByInteraction[r['id'] as int] ?? const [],
@@ -434,6 +610,10 @@ DatabaseSnapshot _snapshot(Database db) {
 void _saveOrganization(Database db, Map<String, Object?> m) {
   final values = {
     for (final key in [
+      'latitude',
+      'longitude',
+      'coordinate_source',
+      'soundex_index',
       'name',
       'industry',
       'address',
@@ -473,6 +653,11 @@ bool _sameOrganizationValue(String key, Object? first, Object? second) {
 
 void _saveContact(Database db, Map<String, Object?> m) {
   const fields = {
+    'latitude': 'latitude',
+    'longitude': 'longitude',
+    'coordinate_source': 'coordinate_source',
+    'name_soundex': 'name_soundex',
+    'soundex_index': 'soundex_index',
     'organization_id': 'organization_id',
     'prefix': 'prefix',
     'first_name': 'first_name',
@@ -594,4 +779,90 @@ void _update(Database db, String table, int id, Map<String, Object?> values) {
     [...values.values, id],
   );
   if (db.updatedRows != 1) throw StateError('Record no longer exists');
+}
+
+void _loadSoundexSamples(Database db) {
+  db.execute(
+    'CREATE TABLE IF NOT EXISTS crm_sample_imports (name TEXT PRIMARY KEY)',
+  );
+  if (db
+      .select("SELECT name FROM crm_sample_imports WHERE name='soundex_v1'")
+      .isNotEmpty)
+    return;
+  final existingTag = db.select(
+    "SELECT id FROM profile_tag_definitions WHERE category='custom' AND value='soundex_demo'",
+  );
+  int tagId;
+  if (existingTag.isNotEmpty) {
+    tagId = existingTag.single['id'] as int;
+  } else {
+    _insert(db, 'profile_tag_definitions', {
+      'category': 'custom',
+      'value': 'soundex_demo',
+      'label': 'Fictional Soundex demo',
+      'color_value': 0xFF00796B,
+      'is_builtin': 0,
+    });
+    tagId = db.lastInsertRowId;
+  }
+  final organizationIds = <int>[];
+  final now = DateTime.now().toUtc();
+  for (final organization in SoundexSamples.organizations) {
+    _saveOrganization(db, organization.toMap());
+    final id = db.lastInsertRowId;
+    organizationIds.add(id);
+    final text = SoundexSamples.note(
+      'Planning follow-up',
+      'Schedule the next quarterly review and confirm venue availability.',
+    );
+    _insert(db, 'organization_notes', {
+      'organization_id': id,
+      'note_text': text,
+      'soundex_index': SoundexHelper.encodePhrase(
+        RichTextContent.plainText(text),
+      ),
+      'created_at': now.toIso8601String(),
+    });
+  }
+  for (final contact in SoundexSamples.contacts(organizationIds, tagId)) {
+    _saveContact(db, contact.toMap());
+    final id = db.lastInsertRowId;
+    final text = SoundexSamples.note(
+      'Introductory meeting',
+      'Discussed logistics, family activities, and the next leadership workshop.',
+    );
+    _insert(db, 'contact_notes', {
+      'contact_id': id,
+      'note_text': text,
+      'soundex_index': SoundexHelper.encodePhrase(
+        RichTextContent.plainText(text),
+      ),
+      'created_at': now.toIso8601String(),
+    });
+    _insert(db, 'interactions', {
+      'contact_id': id,
+      'organization_id': contact.organizationId,
+      'interaction_type': 'Call',
+      'direction': 'Outbound',
+      'occurred_at': now
+          .toIso8601String()
+          .replaceFirst('T', ' ')
+          .replaceFirst('Z', ''),
+      'summary':
+          'Fictional demo: reviewed the training calendar and confirmed the next planning meeting.',
+      'follow_up_required': 1,
+      'follow_up_date': now
+          .add(const Duration(days: 7))
+          .toIso8601String()
+          .substring(0, 10),
+      'follow_up_time': '10:00',
+      'follow_up_at_utc': followUpUtc(
+        now.add(const Duration(days: 7)).toIso8601String().substring(0, 10),
+        '10:00',
+      ),
+      'follow_up_reason': 'Send the workshop agenda and confirm attendance',
+      'follow_up_completed': 0,
+    });
+  }
+  db.execute("INSERT INTO crm_sample_imports(name) VALUES ('soundex_v1')");
 }

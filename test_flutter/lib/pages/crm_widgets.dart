@@ -1,3 +1,4 @@
+import 'rich_text_widgets.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -471,7 +472,7 @@ class _RecordFormState extends State<RecordForm> {
     ))
       key: TextEditingController(
         text: key == 'phone'
-            ? formatPhoneForEditing(widget.values[key] as String? ?? '')
+            ? formatPhoneForEditing(widget.values[key]?.toString() ?? '')
             : widget.values[key] as String? ?? '',
       ),
   };
@@ -523,6 +524,31 @@ class _RecordFormState extends State<RecordForm> {
   }
 
   Widget _recordField(MapEntry<String, String> entry) {
+    if (entry.key == 'latitude' || entry.key == 'longitude') {
+      return TextFormField(
+        controller: _controllers[entry.key],
+        keyboardType: const TextInputType.numberWithOptions(
+          decimal: true,
+          signed: true,
+        ),
+        decoration: InputDecoration(
+          labelText: entry.value,
+          border: const OutlineInputBorder(),
+          helperText:
+              'Optional — leave blank for an approximate offline address match',
+        ),
+        validator: (value) {
+          final latText = _controllers['latitude']?.text.trim() ?? '';
+          final lngText = _controllers['longitude']?.text.trim() ?? '';
+          if (latText.isEmpty && lngText.isEmpty) return null;
+          final parsed = double.tryParse(value?.trim() ?? '');
+          final limit = entry.key == 'latitude' ? 90 : 180;
+          return parsed == null || !parsed.isFinite || parsed.abs() > limit
+              ? 'Enter both coordinates; ${entry.key} must be between -$limit and $limit.'
+              : null;
+        },
+      );
+    }
     if (entry.key == 'children_json') {
       return ChildrenEditor(
         initialChildren: _children,
@@ -577,6 +603,12 @@ class _RecordFormState extends State<RecordForm> {
       );
     }
 
+    if (entry.key == 'notes' || entry.key == 'talking_points') {
+      return RichTextEditor(
+        controller: _controllers[entry.key]!,
+        label: entry.value,
+      );
+    }
     return TextFormField(
       controller: _controllers[entry.key],
       decoration: InputDecoration(

@@ -1,3 +1,6 @@
+import '../utils/utc_time.dart';
+import '../utils/rich_text_content.dart';
+import '../utils/soundex_helper.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -20,6 +23,9 @@ DateTime _parseFollowUpDate(String value) {
 class Organization {
   const Organization({
     this.id,
+    this.latitude,
+    this.longitude,
+    this.coordinateSource = '',
     required this.name,
     this.industry = '',
     this.address = '',
@@ -29,13 +35,23 @@ class Organization {
     this.logoBytes,
     this.isArchived = false,
   });
+  final double? latitude, longitude;
+  final String coordinateSource;
   final int? id;
   final String name, industry, address, phone, email, notes;
   final Uint8List? logoBytes;
   final bool isArchived;
 
+  String get searchText =>
+      '$name $industry $address ${RichTextContent.plainText(notes)}';
+  String get soundexIndex => SoundexHelper.encodePhrase(searchText);
+
   Map<String, Object?> toMap() => {
     'id': id,
+    'latitude': latitude,
+    'longitude': longitude,
+    'coordinate_source': coordinateSource,
+    'soundex_index': soundexIndex,
     'name': name,
     'industry': industry,
     'address': address,
@@ -47,6 +63,9 @@ class Organization {
   };
   factory Organization.fromMap(Map<String, Object?> m) => Organization(
     id: m['id'] as int?,
+    latitude: _coordinate(m['latitude']),
+    longitude: _coordinate(m['longitude']),
+    coordinateSource: m['coordinate_source'] as String? ?? '',
     name: m['name'] as String,
     industry: m['industry'] as String? ?? '',
     address: m['address'] as String? ?? '',
@@ -58,6 +77,9 @@ class Organization {
   );
   Organization copyWith({
     Object? id = _unset,
+    Object? latitude = _unset,
+    Object? longitude = _unset,
+    String? coordinateSource,
     String? name,
     String? industry,
     String? address,
@@ -68,6 +90,13 @@ class Organization {
     bool? isArchived,
   }) => Organization(
     id: identical(id, _unset) ? this.id : id as int?,
+    latitude: identical(latitude, _unset)
+        ? this.latitude
+        : _coordinate(latitude),
+    longitude: identical(longitude, _unset)
+        ? this.longitude
+        : _coordinate(longitude),
+    coordinateSource: coordinateSource ?? this.coordinateSource,
     name: name ?? this.name,
     industry: industry ?? this.industry,
     address: address ?? this.address,
@@ -250,6 +279,9 @@ class ContactEmailAddress {
 class Contact {
   const Contact({
     this.id,
+    this.latitude,
+    this.longitude,
+    this.coordinateSource = '',
     this.organizationId,
     this.prefix = '',
     required this.firstName,
@@ -281,6 +313,8 @@ class Contact {
            ? ContactStatus.archived
            : status,
        isArchived = status == ContactStatus.archived || isArchived;
+  final double? latitude, longitude;
+  final String coordinateSource;
   final int? id, organizationId;
   final String prefix,
       firstName,
@@ -331,8 +365,29 @@ class Contact {
         lastName.trim(),
       ].join(' ') +
       (suffix.trim().isEmpty ? '' : ', ${suffix.trim()}');
+  String get searchText => [
+    fullName,
+    title,
+    militaryBranch,
+    militaryRank,
+    address,
+    spouseName,
+    childrenInfo,
+    ...children.map((c) => c.name),
+    RichTextContent.plainText(notes),
+    RichTextContent.plainText(talkingPoints),
+  ].join(' ');
+  String get nameSoundex =>
+      SoundexHelper.encodePhrase('$firstName $lastName $spouseName');
+  String get fullSoundexIndex => SoundexHelper.encodePhrase(searchText);
+
   Map<String, Object?> toMap() => {
     'id': id,
+    'latitude': latitude,
+    'longitude': longitude,
+    'coordinate_source': coordinateSource,
+    'name_soundex': nameSoundex,
+    'soundex_index': fullSoundexIndex,
     'organization_id': organizationId,
     'prefix': prefix,
     'first_name': firstName,
@@ -381,6 +436,9 @@ class Contact {
 
     return Contact(
       id: m['id'] as int?,
+      latitude: _coordinate(m['latitude']),
+      longitude: _coordinate(m['longitude']),
+      coordinateSource: m['coordinate_source'] as String? ?? '',
       organizationId: m['organization_id'] as int?,
       prefix: m['prefix'] as String? ?? '',
       firstName: m['first_name'] as String,
@@ -422,6 +480,9 @@ class Contact {
   }
   Contact copyWith({
     Object? id = _unset,
+    Object? latitude = _unset,
+    Object? longitude = _unset,
+    String? coordinateSource,
     Object? organizationId = _unset,
     String? prefix,
     String? firstName,
@@ -467,6 +528,13 @@ class Contact {
 
     return Contact(
       id: identical(id, _unset) ? this.id : id as int?,
+      latitude: identical(latitude, _unset)
+          ? this.latitude
+          : _coordinate(latitude),
+      longitude: identical(longitude, _unset)
+          ? this.longitude
+          : _coordinate(longitude),
+      coordinateSource: coordinateSource ?? this.coordinateSource,
       organizationId: identical(organizationId, _unset)
           ? this.organizationId
           : organizationId as int?,
@@ -522,16 +590,16 @@ class ContactNote {
     'id': id,
     'contact_id': contactId,
     'note_text': text,
-    'created_at': createdAt.toIso8601String(),
+    'created_at': createdAt.toUtc().toIso8601String(),
   };
 
   factory ContactNote.fromMap(Map<String, Object?> map) => ContactNote(
     id: map['id'] as int?,
     contactId: map['contact_id'] as int,
     text: map['note_text']?.toString() ?? '',
-    createdAt:
-        DateTime.tryParse(map['created_at']?.toString() ?? '') ??
-        DateTime.fromMillisecondsSinceEpoch(0),
+    createdAt: parseUtcTimestamp(
+      map['created_at']?.toString() ?? '1970-01-01T00:00:00Z',
+    ),
   );
 }
 
@@ -558,7 +626,7 @@ class OrganizationNote {
     'id': id,
     'organization_id': organizationId,
     'note_text': text,
-    'created_at': createdAt.toIso8601String(),
+    'created_at': createdAt.toUtc().toIso8601String(),
   };
 
   factory OrganizationNote.fromMap(Map<String, Object?> map) =>
@@ -566,7 +634,7 @@ class OrganizationNote {
         id: map['id'] as int?,
         organizationId: map['organization_id'] as int,
         text: map['note_text']?.toString() ?? '',
-        createdAt: DateTime.parse(map['created_at'] as String),
+        createdAt: parseUtcTimestamp(map['created_at'] as String),
       );
 }
 
@@ -627,7 +695,7 @@ class InteractionLog {
     'id': id,
     'contact_id': contactId,
     'organization_id': organizationId,
-    'date': date.toIso8601String(),
+    'date': date.toUtc().toIso8601String(),
     'type': type,
     'summary': summary,
     'follow_up_date': followUpDate?.toIso8601String(),
@@ -647,8 +715,8 @@ class InteractionLog {
       // Older database rows can contain NULL in optional interaction columns.
       // Keep one incomplete legacy row from breaking the entire Home page.
       date: rawDate == null || rawDate.isEmpty
-          ? DateTime.fromMillisecondsSinceEpoch(0)
-          : DateTime.parse(rawDate),
+          ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)
+          : parseUtcTimestamp(rawDate),
       type: m['type']?.toString() ?? 'Call',
       summary: m['summary']?.toString() ?? '',
       followUpDate: followUpDate == null
@@ -698,5 +766,33 @@ class InteractionLog {
     followUpReason: followUpReason ?? this.followUpReason,
     followUpCompleted: followUpCompleted ?? this.followUpCompleted,
     attachments: attachments ?? this.attachments,
+  );
+}
+
+double? _coordinate(Object? value) =>
+    value is num ? value.toDouble() : double.tryParse(value?.toString() ?? '');
+
+class UserLocation {
+  const UserLocation({
+    required this.latitude,
+    required this.longitude,
+    required this.label,
+  });
+  final double latitude, longitude;
+  final String label;
+  static const demo = UserLocation(
+    latitude: 36.163,
+    longitude: -86.782,
+    label: 'Demo base — Nashville',
+  );
+  Map<String, Object?> toMap() => {
+    'latitude': latitude,
+    'longitude': longitude,
+    'label': label,
+  };
+  factory UserLocation.fromMap(Map<String, Object?> map) => UserLocation(
+    latitude: (map['latitude'] as num).toDouble(),
+    longitude: (map['longitude'] as num).toDouble(),
+    label: map['label'] as String,
   );
 }

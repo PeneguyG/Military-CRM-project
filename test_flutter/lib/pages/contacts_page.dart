@@ -1,3 +1,6 @@
+import 'rich_text_widgets.dart';
+import '../utils/rich_text_content.dart';
+import '../utils/soundex_helper.dart';
 import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
@@ -219,23 +222,42 @@ Future<void> editContact(
         'email': 'Primary email',
         'additional_emails_json': 'Additional email addresses',
         'address': 'Address / Location',
+        'latitude': 'Latitude',
+        'longitude': 'Longitude',
         'spouse_name': 'Spouse name (optional)',
         'children_json': 'Children',
         'custom_tags_json': 'Profile tags',
+        'notes': 'Profile notes',
+        'talking_points': 'Talking points',
       },
     ),
   );
 }
 
 class ContactsPage extends StatefulWidget {
-  const ContactsPage({super.key, required this.store, this.initialContactId});
+  const ContactsPage({
+    super.key,
+    required this.store,
+    this.initialContactId,
+    this.onViewMap,
+  });
   final CrmStore store;
   final int? initialContactId;
+  final ValueChanged<String>? onViewMap;
   @override
   State<ContactsPage> createState() => _ContactsPageState();
 }
 
 class _ContactsPageState extends State<ContactsPage> {
+  String _extraText(Contact c) => [
+    if (c.id != null)
+      widget.store
+          .notesForContact(c.id!)
+          .map((n) => RichTextContent.plainText(n.text))
+          .join(' '),
+    widget.store.organization(c.organizationId)?.searchText ?? '',
+  ].join(' ');
+  String _searchText(Contact c) => '${c.searchText} ${_extraText(c)}';
   String _search = '';
   late int? _selected = widget.initialContactId;
   @override
@@ -246,7 +268,11 @@ class _ContactsPageState extends State<ContactsPage> {
         if (mounted && context.size != null && context.size!.width < 850) {
           openDetail(
             context,
-            ContactDetail(store: widget.store, id: _selected!),
+            ContactDetail(
+              store: widget.store,
+              id: _selected!,
+              onViewMap: widget.onViewMap,
+            ),
             'Contact dossier',
           );
         }
@@ -280,16 +306,12 @@ class _ContactsPageState extends State<ContactsPage> {
                 .where(
                   (c) =>
                       !c.isArchived &&
-                      [
-                        c.fullName,
-                        c.title,
-                        c.militaryBranch,
-                        c.militaryRank,
-                        c.address,
-                        c.notes,
-                        c.talkingPoints,
-                        widget.store.organization(c.organizationId)?.name ?? '',
-                      ].join(' ').toLowerCase().contains(_search),
+                      SoundexHelper.matchesQuery(
+                        _search,
+                        rawTargetText: _searchText(c),
+                        precomputedSoundex:
+                            '${c.fullSoundexIndex} ${SoundexHelper.encodePhrase(_extraText(c))}',
+                      ),
                 )
                 .toList()
               ..sort(
@@ -361,7 +383,11 @@ class _ContactsPageState extends State<ContactsPage> {
                         if (constraints.maxWidth < 850)
                           openDetail(
                             context,
-                            ContactDetail(store: widget.store, id: c.id!),
+                            ContactDetail(
+                              store: widget.store,
+                              id: c.id!,
+                              onViewMap: widget.onViewMap,
+                            ),
                             c.fullName,
                           );
                       },
@@ -370,7 +396,11 @@ class _ContactsPageState extends State<ContactsPage> {
                 ),
           detail: selected == null
               ? const Center(child: Text('Select a contact'))
-              : ContactDetail(store: widget.store, id: selected.id!),
+              : ContactDetail(
+                  store: widget.store,
+                  id: selected.id!,
+                  onViewMap: widget.onViewMap,
+                ),
         );
       },
     ),
@@ -378,9 +408,15 @@ class _ContactsPageState extends State<ContactsPage> {
 }
 
 class ContactDetail extends StatefulWidget {
-  const ContactDetail({super.key, required this.store, required this.id});
+  const ContactDetail({
+    super.key,
+    required this.store,
+    required this.id,
+    this.onViewMap,
+  });
   final CrmStore store;
   final int id;
+  final ValueChanged<String>? onViewMap;
 
   @override
   State<ContactDetail> createState() => _ContactDetailState();
@@ -533,6 +569,15 @@ class _ContactDetailState extends State<ContactDetail> {
             icon: const Icon(Icons.edit),
             label: const Text('Edit'),
           ),
+          if (widget.onViewMap != null)
+            OutlinedButton.icon(
+              onPressed: () {
+                if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+                widget.onViewMap!('contact:${c.id}');
+              },
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('View on Map'),
+            ),
           OutlinedButton.icon(
             onPressed: () => runDatabaseAction(
               context,
@@ -785,6 +830,22 @@ class _ContactDetailState extends State<ContactDetail> {
               c.childrenInfo,
               icon: Icons.child_care_outlined,
             ),
+          if (c.notes.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Profile notes',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            RichTextView(c.notes),
+          ],
+          if (c.talkingPoints.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Talking points',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            RichTextView(c.talkingPoints),
+          ],
           const SizedBox(height: 16),
           Align(
             alignment: Alignment.centerLeft,
@@ -823,7 +884,7 @@ class _ContactDetailState extends State<ContactDetail> {
                     ),
                   for (final note in contactNotes) ...[
                     if (contactNotes.first != note) const Divider(height: 24),
-                    SelectableText(note.text),
+                    RichTextView(note.text),
                     const SizedBox(height: 4),
                     Text(
                       '${localizations.formatMediumDate(note.createdAt.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(note.createdAt.toLocal()))}',
@@ -948,23 +1009,15 @@ class _AddContactNoteDialogState extends State<_AddContactNoteDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Add contact note'),
+    scrollable: true,
     content: SizedBox(
-      width: 480,
+      width: 600,
       child: Form(
         key: _key,
-        child: TextFormField(
+        child: RichTextEditor(
           controller: _controller,
-          autofocus: true,
-          minLines: 4,
-          maxLines: 8,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            labelText: 'Note',
-            hintText: 'Add a note to this contact’s profile',
-            border: OutlineInputBorder(),
-          ),
-          validator: (value) =>
-              value == null || value.trim().isEmpty ? 'Enter a note' : null,
+          label: 'Note',
+          required: true,
         ),
       ),
     ),

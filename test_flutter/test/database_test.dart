@@ -22,7 +22,10 @@ void main() {
   test(
     'New records, edits, relationships and logs survive reopening',
     () async {
-      var store = await CrmStore.open(CrmDatabase(path), schema);
+      var store = await CrmStore.open(
+        CrmDatabase.unencryptedForTesting(path),
+        schema,
+      );
       expect(store.contacts, isEmpty);
       expect(store.organizations, isEmpty);
       await store.saveOrganization(
@@ -67,7 +70,10 @@ void main() {
       await store.archiveContact(contactId, true);
       await store.archiveOrganization(organizationId, true);
       store.dispose();
-      store = await CrmStore.open(CrmDatabase(path), schema);
+      store = await CrmStore.open(
+        CrmDatabase.unencryptedForTesting(path),
+        schema,
+      );
       expect(store.contacts.single.isArchived, isTrue);
       expect(store.organizations.single.isArchived, isTrue);
       expect(store.interactions.single.toMap(), interaction);
@@ -87,7 +93,10 @@ void main() {
         store.saveOrganization(const Organization(name: 'Third Unit')),
       ]);
       store.dispose();
-      store = await CrmStore.open(CrmDatabase(path), schema);
+      store = await CrmStore.open(
+        CrmDatabase.unencryptedForTesting(path),
+        schema,
+      );
       addTearDown(store.dispose);
       expect(store.contacts.single.firstName, 'Janet');
       expect(store.contacts.single.organizationId, isNull);
@@ -132,7 +141,10 @@ void main() {
       db.select('SELECT * FROM organizations').single,
     );
     db.close();
-    var store = await CrmStore.open(CrmDatabase(path), schema);
+    var store = await CrmStore.open(
+      CrmDatabase.unencryptedForTesting(path),
+      schema,
+    );
     expect(store.organizations.single.address, '1 Main St, Nashville');
     expect(store.contacts.single.title, 'Captain');
     expect(store.contacts.single.childrenInfo, 'Child details');
@@ -172,7 +184,10 @@ void main() {
     db = sqlite3.open(path);
     db.execute(schema);
     db.close();
-    store = await CrmStore.open(CrmDatabase(path), schema);
+    store = await CrmStore.open(
+      CrmDatabase.unencryptedForTesting(path),
+      schema,
+    );
     addTearDown(store.dispose);
     db = sqlite3.open(path);
     try {
@@ -214,7 +229,10 @@ void main() {
   test(
     'Failed writes roll back and leave the store unchanged; queue recovers',
     () async {
-      final store = await CrmStore.open(CrmDatabase(path), schema);
+      final store = await CrmStore.open(
+        CrmDatabase.unencryptedForTesting(path),
+        schema,
+      );
       addTearDown(store.dispose);
       await expectLater(
         store.saveContact(
@@ -252,7 +270,10 @@ void main() {
         throwsA(isA<SqliteException>()),
       );
       expect(store.interactions, isEmpty);
-      final reopened = await CrmStore.open(CrmDatabase(path), schema);
+      final reopened = await CrmStore.open(
+        CrmDatabase.unencryptedForTesting(path),
+        schema,
+      );
       addTearDown(reopened.dispose);
       expect(reopened.contacts, hasLength(1));
       expect(reopened.organizations, hasLength(1));
@@ -270,7 +291,7 @@ void main() {
       );
       db.close();
       await expectLater(
-        CrmStore.open(CrmDatabase(path), schema),
+        CrmStore.open(CrmDatabase.unencryptedForTesting(path), schema),
         throwsStateError,
       );
       final check = sqlite3.open(path);

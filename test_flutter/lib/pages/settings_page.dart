@@ -63,6 +63,8 @@ class SettingsPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
+        _SoundexSamplesCard(store: store),
+        const SizedBox(height: 24),
         Row(
           children: [
             Expanded(
@@ -343,5 +345,71 @@ class _CreateTagDialogState extends State<_CreateTagDialog> {
         child: const Text('Create tag'),
       ),
     ],
+  );
+}
+
+class _SoundexSamplesCard extends StatefulWidget {
+  const _SoundexSamplesCard({required this.store});
+  final CrmStore store;
+  @override
+  State<_SoundexSamplesCard> createState() => _SoundexSamplesCardState();
+}
+
+class _SoundexSamplesCardState extends State<_SoundexSamplesCard> {
+  bool _loading = false;
+  String? _message;
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _message = null;
+    });
+    try {
+      await widget.store.loadSoundexSamples();
+      if (mounted)
+        setState(
+          () => _message =
+              'Sample data is ready. Repeated loads do not duplicate records.',
+        );
+    } catch (error) {
+      if (mounted)
+        setState(() => _message = 'Could not load sample data: $error');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Soundex sample data',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Add 3 fictional organizations and 6 complete contact profiles, with family details, rich-text notes, talking points, and follow-ups. Existing records are preserved.',
+          ),
+          const SizedBox(height: 8),
+          const SelectableText(
+            'Try: Smyth → Smith · Ashcroft → Ashcraft · Fister → Pfister · Jaxon → Jackson · Rupert → Robert',
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.science_outlined),
+            label: Text(_loading ? 'Loading…' : 'Load sample data'),
+          ),
+          if (_message != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(_message!),
+            ),
+        ],
+      ),
+    ),
   );
 }

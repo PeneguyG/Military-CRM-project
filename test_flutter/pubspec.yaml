@@ -15,6 +15,11 @@ dependencies:
   sqlite3: ^3.8.0
   path_provider: ^2.1.5
   path: ^1.9.1
+  flutter_quill: ^11.6.0
+  ffi: ^2.2.0
+  win32: ^6.4.0
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:
@@ -25,3 +30,8 @@ flutter:
   assets:
     - assets/schema_v1.sql
     - assets/steel_wings_crm_logo.png
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc

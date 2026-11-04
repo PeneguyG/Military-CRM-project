@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'utils/offline_map_helper.dart';
+import 'utils/rich_text_content.dart';
 import 'package:flutter/foundation.dart';
 import 'models/crm_models.dart';
 import 'data/crm_database.dart';
@@ -24,6 +27,7 @@ class CrmStore extends ChangeNotifier {
   final List<ContactNote> _contactNotes;
   final List<OrganizationNote> _organizationNotes;
   final List<ProfileTagDefinition> _profileTags;
+  UserLocation userLocation = UserLocation.demo;
   CrmDatabase? _database;
   Future<void> _pending = Future.value();
   bool _disposed = false;
@@ -36,6 +40,18 @@ class CrmStore extends ChangeNotifier {
   }
 
   void _apply(DatabaseSnapshot snapshot) {
+    final settings = {
+      for (final row in snapshot['map_settings'] ?? <Map<String, Object?>>[])
+        row['key'] as String: row['value'],
+    };
+    userLocation = settings['user_location'] == null
+        ? UserLocation.demo
+        : UserLocation.fromMap(
+            Map<String, Object?>.from(
+              jsonDecode(settings['user_location'] as String),
+            ),
+          );
+
     final organizations = snapshot['organizations']!
         .map(Organization.fromMap)
         .toList();
@@ -80,6 +96,30 @@ class CrmStore extends ChangeNotifier {
       onError: (Object error, StackTrace stack) {},
     );
     return task;
+  }
+
+  Future<void> loadSoundexSamples() async {
+    if (_database == null)
+      throw StateError('Sample data requires a saved database.');
+    await _persist(_database!.loadSoundexSamples);
+  }
+
+  Future<void> saveUserLocation(UserLocation location) async {
+    if (!OfflineMapHelper.validCoordinates(
+      location.latitude,
+      location.longitude,
+    ))
+      throw ArgumentError('Invalid coordinates');
+    if (_database != null) {
+      await _persist(
+        () => _database!.saveMapSettings({
+          'user_location': jsonEncode(location.toMap()),
+        }),
+      );
+    } else {
+      userLocation = location;
+      notifyListeners();
+    }
   }
 
   Future<void> reload() async {
@@ -143,6 +183,29 @@ class CrmStore extends ChangeNotifier {
   int _nextId(Iterable<int?> ids) =>
       ids.fold<int>(0, (a, b) => b != null && b > a ? b : a) + 1;
   Future<void> saveOrganization(Organization item) async {
+    final previous = organization(item.id);
+    final changedAddress =
+        previous != null &&
+        previous.address != item.address &&
+        previous.latitude == item.latitude &&
+        previous.longitude == item.longitude;
+    if (changedAddress || (item.latitude == null && item.longitude == null)) {
+      final match = OfflineMapHelper.resolve(item.address);
+      item = item.copyWith(
+        latitude: match?.point.latitude,
+        longitude: match?.point.longitude,
+        coordinateSource: match?.precision ?? '',
+      );
+    } else if (!OfflineMapHelper.validCoordinates(
+      item.latitude,
+      item.longitude,
+    )) {
+      throw ArgumentError('Enter both latitude and longitude in valid ranges.');
+    } else if (item.coordinateSource.isEmpty ||
+        previous?.latitude != item.latitude ||
+        previous?.longitude != item.longitude) {
+      item = item.copyWith(coordinateSource: 'Manually placed');
+    }
     if (_database != null) {
       await _persist(() => _database!.saveOrganization(item));
       return;
@@ -161,6 +224,29 @@ class CrmStore extends ChangeNotifier {
   }
 
   Future<void> saveContact(Contact item) async {
+    final previous = contact(item.id);
+    final changedAddress =
+        previous != null &&
+        previous.address != item.address &&
+        previous.latitude == item.latitude &&
+        previous.longitude == item.longitude;
+    if (changedAddress || (item.latitude == null && item.longitude == null)) {
+      final match = OfflineMapHelper.resolve(item.address);
+      item = item.copyWith(
+        latitude: match?.point.latitude,
+        longitude: match?.point.longitude,
+        coordinateSource: match?.precision ?? '',
+      );
+    } else if (!OfflineMapHelper.validCoordinates(
+      item.latitude,
+      item.longitude,
+    )) {
+      throw ArgumentError('Enter both latitude and longitude in valid ranges.');
+    } else if (item.coordinateSource.isEmpty ||
+        previous?.latitude != item.latitude ||
+        previous?.longitude != item.longitude) {
+      item = item.copyWith(coordinateSource: 'Manually placed');
+    }
     if (_database != null) {
       await _persist(() => _database!.saveContact(item));
       return;
@@ -198,7 +284,8 @@ class CrmStore extends ChangeNotifier {
   }
 
   Future<void> addContactNote(ContactNote item) async {
-    if (contact(item.contactId) == null || item.text.trim().isEmpty) {
+    if (contact(item.contactId) == null ||
+        RichTextContent.plainText(item.text).trim().isEmpty) {
       throw ArgumentError('A note needs an existing contact and text');
     }
     if (_database != null) {
@@ -217,7 +304,8 @@ class CrmStore extends ChangeNotifier {
   }
 
   Future<void> addOrganizationNote(OrganizationNote item) async {
-    if (organization(item.organizationId) == null || item.text.trim().isEmpty) {
+    if (organization(item.organizationId) == null ||
+        RichTextContent.plainText(item.text).trim().isEmpty) {
       throw ArgumentError('A note needs an existing organization and text');
     }
     if (_database != null) {
