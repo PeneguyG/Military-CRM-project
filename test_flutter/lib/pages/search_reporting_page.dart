@@ -6,6 +6,8 @@ import 'crm_widgets.dart';
 
 enum _SearchScope { all, contacts, organizations }
 
+enum _FilterField { name, tag, location, militaryRank }
+
 class SearchReportingPage extends StatefulWidget {
   const SearchReportingPage({
     super.key,
@@ -25,6 +27,8 @@ class SearchReportingPage extends StatefulWidget {
 class _SearchReportingPageState extends State<SearchReportingPage> {
   final _searchController = TextEditingController();
   _SearchScope _scope = _SearchScope.all;
+  _FilterField _filterField = _FilterField.name;
+  int? _selectedTagId;
 
   @override
   void dispose() {
@@ -59,35 +63,86 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
         .toList();
   }
 
-  String _contactSearchText(Contact contact, List<String> tags) {
-    final organization = widget.store.organization(contact.organizationId);
-    return [
-      contact.fullName,
-      contact.title,
-      contact.militaryRank,
-      contact.militaryBranch,
-      contact.address,
-      contact.latitude?.toString() ?? '',
-      contact.longitude?.toString() ?? '',
-      organization?.name ?? '',
-      organization?.address ?? '',
-      ...tags,
-    ].join(' ');
+  String get _filterLabel => switch (_filterField) {
+    _FilterField.name => 'Name',
+    _FilterField.tag => 'Tag',
+    _FilterField.location => 'Location',
+    _FilterField.militaryRank => 'Military rank',
+  };
+
+  bool _hasTag(Contact contact, ProfileTagDefinition tag) =>
+      (tag.id != null && contact.customTagIds.contains(tag.id)) ||
+      (tag.category == 'preferred_contact' &&
+          tag.value == contact.preferredContactMethod) ||
+      (tag.category == 'life_status' && tag.value == contact.lifeStatus);
+
+  bool _matchesContact(
+    Contact contact,
+    String query,
+    ProfileTagDefinition? tag,
+  ) {
+    switch (_filterField) {
+      case _FilterField.name:
+        return query.isEmpty || _matches(query, contact.fullName);
+      case _FilterField.tag:
+        return tag != null && _hasTag(contact, tag);
+      case _FilterField.location:
+        final organization = widget.store.organization(contact.organizationId);
+        final location = [
+          contact.address,
+          contact.latitude?.toString() ?? '',
+          contact.longitude?.toString() ?? '',
+          organization?.address ?? '',
+        ].join(' ');
+        return query.isEmpty || _matches(query, location);
+      case _FilterField.militaryRank:
+        return query.isEmpty || _matches(query, contact.militaryRank);
+    }
   }
+
+  bool _matchesOrganization(Organization organization, String query) {
+    switch (_filterField) {
+      case _FilterField.name:
+        return query.isEmpty || _matches(query, organization.name);
+      case _FilterField.tag:
+      case _FilterField.militaryRank:
+        return false;
+      case _FilterField.location:
+        final location = [
+          organization.address,
+          organization.latitude?.toString() ?? '',
+          organization.longitude?.toString() ?? '',
+        ].join(' ');
+        return query.isEmpty || _matches(query, location);
+    }
+  }
+
+  String _tagCategoryLabel(String category) => switch (category) {
+    'preferred_contact' => 'Preferred contact',
+    'life_status' => 'Life status',
+    _ => 'Custom',
+  };
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.store,
     builder: (context, _) {
       final query = _searchController.text.trim();
+      final tags = widget.store.profileTags
+          .where((tag) => tag.id != null)
+          .toList();
+      final selectedTag = tags
+          .where((tag) => tag.id == _selectedTagId)
+          .firstOrNull;
+      final hasFilter = _filterField == _FilterField.tag
+          ? selectedTag != null
+          : query.isNotEmpty;
       final contacts =
           _scope == _SearchScope.organizations
                 ? <Contact>[]
                 : widget.store.contacts.where((contact) {
                     if (contact.isArchived) return false;
-                    final tags = _tagsFor(contact);
-                    return query.isEmpty ||
-                        _matches(query, _contactSearchText(contact, tags));
+                    return _matchesContact(contact, query, selectedTag);
                   }).toList()
             ..sort(
               (a, b) =>
@@ -98,14 +153,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
                 ? <Organization>[]
                 : widget.store.organizations.where((organization) {
                     if (organization.isArchived) return false;
-                    final text = [
-                      organization.name,
-                      organization.industry,
-                      organization.address,
-                      organization.latitude?.toString() ?? '',
-                      organization.longitude?.toString() ?? '',
-                    ].join(' ');
-                    return query.isEmpty || _matches(query, text);
+                    return _matchesOrganization(organization, query);
                   }).toList()
             ..sort(
               (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
@@ -119,7 +167,15 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _searchSection(context, query, contacts, organizations),
+                _searchSection(
+                  context,
+                  query,
+                  hasFilter,
+                  tags,
+                  selectedTag,
+                  contacts,
+                  organizations,
+                ),
                 const SizedBox(height: 24),
                 _analyticsSection(context),
               ],
@@ -133,6 +189,9 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
   Widget _searchSection(
     BuildContext context,
     String query,
+    bool hasFilter,
+    List<ProfileTagDefinition> tags,
+    ProfileTagDefinition? selectedTag,
     List<Contact> contacts,
     List<Organization> organizations,
   ) {
@@ -146,31 +205,103 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
             Text('Filter records', style: theme.textTheme.titleLarge),
             const SizedBox(height: 4),
             Text(
-              'Search contact names, tags, locations, military ranks, and organization details.',
+              'Choose a field, then enter a value or select a profile tag.',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: _searchController,
-              onChanged: (_) => setState(() {}),
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                labelText: 'Search records',
-                hintText: 'Name, tag, city, address, or military rank',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: query.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Clear search',
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.close),
-                      ),
-                border: const OutlineInputBorder(),
+            PopupMenuButton<_FilterField>(
+              tooltip: 'Choose which field to filter',
+              onSelected: (field) => setState(() {
+                _filterField = field;
+                _searchController.clear();
+              }),
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: _FilterField.name, child: Text('Name')),
+                PopupMenuItem(value: _FilterField.tag, child: Text('Tag')),
+                PopupMenuItem(
+                  value: _FilterField.location,
+                  child: Text('Location'),
+                ),
+                PopupMenuItem(
+                  value: _FilterField.militaryRank,
+                  child: Text('Military rank'),
+                ),
+              ],
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.secondaryContainer,
+                  border: Border.all(color: theme.colorScheme.outline),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 11,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.filter_list),
+                      const SizedBox(width: 8),
+                      Text('Filter by: $_filterLabel'),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.arrow_drop_down),
+                    ],
+                  ),
+                ),
               ),
             ),
+            const SizedBox(height: 12),
+            if (_filterField == _FilterField.tag)
+              if (tags.isEmpty)
+                const InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Profile tag',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Text('No profile tags are available.'),
+                )
+              else
+                AnchoredDropdown<int>(
+                  label: 'Choose a profile tag',
+                  initialSelection: selectedTag?.id,
+                  entries: [
+                    for (final tag in tags)
+                      DropdownMenuEntry(
+                        value: tag.id!,
+                        label:
+                            '${tag.label} · ${_tagCategoryLabel(tag.category)}',
+                      ),
+                  ],
+                  onSelected: (id) => setState(() => _selectedTagId = id),
+                )
+            else
+              TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  labelText: 'Filter by $_filterLabel',
+                  hintText: switch (_filterField) {
+                    _FilterField.name => 'Enter a contact or organization name',
+                    _FilterField.location => 'Enter an address or location',
+                    _FilterField.militaryRank => 'Enter a military rank',
+                    _FilterField.tag => null,
+                  },
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear filter value',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close),
+                        ),
+                  border: const OutlineInputBorder(),
+                ),
+              ),
             const SizedBox(height: 12),
             SegmentedButton<_SearchScope>(
               segments: const [
@@ -188,7 +319,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
               onSelectionChanged: (selection) =>
                   setState(() => _scope = selection.first),
             ),
-            if (query.isNotEmpty) ...[
+            if (hasFilter) ...[
               const Divider(height: 28),
               Text(
                 '${contacts.length + organizations.length} results',
@@ -209,7 +340,9 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
             ] else ...[
               const SizedBox(height: 12),
               Text(
-                'Enter one or more terms to filter contacts and organizations.',
+                _filterField == _FilterField.tag
+                    ? 'Choose a profile tag to see matching contacts.'
+                    : 'Enter a value to filter contacts and organizations.',
                 style: theme.textTheme.bodySmall,
               ),
             ],

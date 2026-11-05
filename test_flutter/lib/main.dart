@@ -17,6 +17,130 @@ import 'pages/settings_page.dart';
 import 'pages/search_reporting_page.dart';
 import 'models/crm_models.dart';
 
+const _hopePrimary = Color(0xFF3A57E8);
+
+ThemeData _hopeTheme(Brightness brightness) {
+  final dark = brightness == Brightness.dark;
+  final background = dark ? const Color(0xFF121722) : const Color(0xFFF5F7FB);
+  final surface = dark ? const Color(0xFF1B2230) : Colors.white;
+  final border = dark ? const Color(0xFF30394A) : const Color(0xFFE5E9F0);
+  final inputSurface = dark ? const Color(0xFF202837) : const Color(0xFFF9FAFC);
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: _hopePrimary,
+        brightness: brightness,
+      ).copyWith(
+        primary: dark ? const Color(0xFFA8B7FF) : _hopePrimary,
+        onPrimary: dark ? const Color(0xFF111A42) : Colors.white,
+        secondaryContainer: dark
+            ? const Color(0xFF293653)
+            : const Color(0xFFE8EDFF),
+        onSecondaryContainer: dark
+            ? const Color(0xFFD6DFFF)
+            : const Color(0xFF253DA8),
+        surface: surface,
+        onSurface: dark ? const Color(0xFFE9ECF3) : const Color(0xFF202638),
+        surfaceContainerLow: dark
+            ? const Color(0xFF202735)
+            : const Color(0xFFFAFBFD),
+        outline: border,
+        outlineVariant: border,
+      );
+  const inputRadius = BorderRadius.all(Radius.circular(11));
+
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: scheme,
+    scaffoldBackgroundColor: background,
+    cardTheme: CardThemeData(
+      color: surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      margin: const EdgeInsets.all(6),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: border),
+      ),
+    ),
+    appBarTheme: AppBarTheme(
+      backgroundColor: background,
+      foregroundColor: scheme.onSurface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      centerTitle: false,
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: inputSurface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: inputRadius,
+        borderSide: BorderSide(color: border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: inputRadius,
+        borderSide: BorderSide(color: border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: inputRadius,
+        borderSide: BorderSide(color: scheme.primary, width: 1.6),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: inputRadius,
+        borderSide: BorderSide(color: scheme.error),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: inputRadius,
+        borderSide: BorderSide(color: scheme.error, width: 1.6),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(44, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(44, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        side: BorderSide(color: border),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: scheme.secondaryContainer,
+      selectedColor: scheme.secondaryContainer,
+      labelStyle: TextStyle(color: scheme.onSecondaryContainer),
+      side: BorderSide(color: border),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+    ),
+    listTileTheme: ListTileThemeData(
+      iconColor: scheme.primary,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: border),
+      ),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    dividerTheme: DividerThemeData(color: border, thickness: 1, space: 1),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+  );
+}
+
 void main() => runApp(const MilitaryCrmApp());
 
 class MilitaryCrmApp extends StatefulWidget {
@@ -113,17 +237,8 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
       localizationsDelegates: const [FlutterQuillLocalizations.delegate],
       debugShowCheckedModeBanner: false,
       themeMode: mode,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.teal,
-          brightness: Brightness.dark,
-        ),
-      ),
+      theme: _hopeTheme(Brightness.light),
+      darkTheme: _hopeTheme(Brightness.dark),
       home: _isAuthenticated
           ? FutureBuilder<CrmStore>(
               future: _opening!,
@@ -446,31 +561,95 @@ class _CrmHomePageState extends State<CrmHomePage> {
             children: [
               Row(
                 children: [
-                  SizedBox(width: railWidth + 1),
-                  Expanded(
+                  Container(
+                    width: railWidth + 1,
+                    height: 64,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: extendedRail ? 14 : 0,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      border: Border(
+                        right: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        bottom: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                      ),
+                    ),
                     child: Row(
+                      mainAxisAlignment: extendedRail
+                          ? MainAxisAlignment.start
+                          : MainAxisAlignment.center,
                       children: [
-                        IconButton(
-                          tooltip: _navigationCollapsed
-                              ? 'Expand navigation'
-                              : 'Collapse navigation',
-                          onPressed: () => setState(
-                            () => _navigationCollapsed = !_navigationCollapsed,
-                          ),
-                          icon: Icon(
-                            _navigationCollapsed ? Icons.menu : Icons.menu_open,
-                          ),
+                        Image.asset(
+                          'assets/steel_wings_crm_logo.png',
+                          width: 44,
+                          height: 44,
+                          fit: BoxFit.contain,
                         ),
-                        const Spacer(),
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: IconButton(
-                            tooltip: 'Lock app',
-                            onPressed: widget.onLock,
-                            icon: const Icon(Icons.lock_outline),
+                        if (extendedRail) ...[
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Steel Wings CRM',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
                           ),
-                        ),
+                        ],
                       ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Container(
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: _navigationCollapsed
+                                ? 'Expand navigation'
+                                : 'Collapse navigation',
+                            onPressed: () => setState(
+                              () =>
+                                  _navigationCollapsed = !_navigationCollapsed,
+                            ),
+                            icon: Icon(
+                              _navigationCollapsed
+                                  ? Icons.menu
+                                  : Icons.menu_open,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _tab == _settingsTab
+                                ? 'Settings'
+                                : _destinations[_tab].label,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const Spacer(),
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: IconButton(
+                              tooltip: 'Lock app',
+                              onPressed: widget.onLock,
+                              icon: const Icon(Icons.lock_outline),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -485,41 +664,47 @@ class _CrmHomePageState extends State<CrmHomePage> {
                       // Row gives non-flex children unbounded width; keep the
                       // rail and bottom Settings tab at a known width.
                       width: railWidth,
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: ListView(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              children: [
-                                for (
-                                  var index = 0;
-                                  index < _destinations.length;
-                                  index++
-                                )
-                                  _NavigationItem(
-                                    label: _destinations[index].label,
-                                    icon: _tab == index
-                                        ? _destinations[index].selectedIcon
-                                        : _destinations[index].icon,
-                                    selected: _tab == index,
-                                    showLabel:
-                                        extendedRail ||
-                                        (compactSelectedLabel && _tab == index),
-                                    onPressed: () => _selectTab(index),
-                                  ),
-                              ],
+                      child: Material(
+                        color: Theme.of(context).colorScheme.surface,
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: ListView(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
+                                children: [
+                                  for (
+                                    var index = 0;
+                                    index < _destinations.length;
+                                    index++
+                                  )
+                                    _NavigationItem(
+                                      label: _destinations[index].label,
+                                      icon: _tab == index
+                                          ? _destinations[index].selectedIcon
+                                          : _destinations[index].icon,
+                                      selected: _tab == index,
+                                      showLabel:
+                                          extendedRail ||
+                                          (compactSelectedLabel &&
+                                              _tab == index),
+                                      onPressed: () => _selectTab(index),
+                                    ),
+                                ],
+                              ),
                             ),
-                          ),
-                          _NavigationItem(
-                            label: 'Settings',
-                            icon: _tab == _settingsTab
-                                ? Icons.settings
-                                : Icons.settings_outlined,
-                            selected: _tab == _settingsTab,
-                            showLabel: extendedRail,
-                            onPressed: () => _selectTab(_settingsTab),
-                          ),
-                        ],
+                            _NavigationItem(
+                              label: 'Settings',
+                              icon: _tab == _settingsTab
+                                  ? Icons.settings
+                                  : Icons.settings_outlined,
+                              selected: _tab == _settingsTab,
+                              showLabel: extendedRail,
+                              onPressed: () => _selectTab(_settingsTab),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const VerticalDivider(width: 1),
