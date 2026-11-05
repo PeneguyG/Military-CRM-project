@@ -176,7 +176,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
                   contacts,
                   organizations,
                 ),
-                const SizedBox(height: 24),
+                const Divider(height: 48, indent: 8, endIndent: 8),
                 _analyticsSection(context),
               ],
             ),
@@ -509,95 +509,80 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
       ..sort((a, b) => b.value.compareTo(a.value));
 
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('CRM analytics', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 4),
-        Text(
-          'Interaction activity, follow-up workload, and contact coverage.',
-          style: theme.textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 16),
-        _MetricGrid(metrics: metrics),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Interactions per day · last 14 days',
-                  style: theme.textTheme.titleMedium,
-                ),
-                const SizedBox(height: 16),
-                if (maxDailyCount == 0)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 28),
-                    child: Center(child: Text('No interactions recorded yet.')),
-                  )
-                else
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        for (final day in days)
-                          _DailyBar(
-                            date: day,
-                            count: dailyCounts[day] ?? 0,
-                            maxCount: maxDailyCount,
-                          ),
-                      ],
-                    ),
-                  ),
-                const Divider(height: 28),
-                Text(
-                  'Interaction types · last 30 days',
-                  style: theme.textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                for (final entry in typeCounts.entries)
-                  _InteractionTypeRow(
-                    type: entry.key,
-                    count: entry.value,
-                    maxCount: maxTypeCount,
-                  ),
-              ],
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('CRM analytics', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              'Interaction activity, follow-up workload, and contact coverage.',
+              style: theme.textTheme.bodyMedium,
             ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Most contacted · last 30 days',
-                  style: theme.textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                if (mostContacted.isEmpty)
-                  const Text('No recent interactions to rank yet.')
-                else
-                  for (final entry in mostContacted.take(5))
-                    if (widget.store.contact(entry.key) case final contact?)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.person_outline),
-                        title: Text(contact.fullName),
-                        subtitle: Text('${entry.value} interactions'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => widget.onOpenContact(contact),
+            const SizedBox(height: 16),
+            _MetricGrid(metrics: metrics),
+            const Divider(height: 36),
+            Text(
+              'Interactions per day · last 14 days',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 16),
+            if (maxDailyCount == 0)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 28),
+                child: Center(child: Text('No interactions recorded yet.')),
+              )
+            else
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (final day in days)
+                      _DailyBar(
+                        date: day,
+                        count: dailyCounts[day] ?? 0,
+                        maxCount: maxDailyCount,
                       ),
-              ],
+                  ],
+                ),
+              ),
+            const Divider(height: 36),
+            Text(
+              'Interaction types · last 30 days',
+              style: theme.textTheme.titleMedium,
             ),
-          ),
+            const SizedBox(height: 12),
+            for (final entry in typeCounts.entries)
+              _InteractionTypeRow(
+                type: entry.key,
+                count: entry.value,
+                maxCount: maxTypeCount,
+              ),
+            const Divider(height: 36),
+            Text(
+              'Most contacted · last 30 days',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (mostContacted.isEmpty)
+              const Text('No recent interactions to rank yet.')
+            else
+              for (final entry in mostContacted.take(5))
+                if (widget.store.contact(entry.key) case final contact?)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.person_outline),
+                    title: Text(contact.fullName),
+                    subtitle: Text('${entry.value} interactions'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => widget.onOpenContact(contact),
+                  ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

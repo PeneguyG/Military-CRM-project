@@ -460,14 +460,14 @@ class _CrmHomePageState extends State<CrmHomePage> {
       selectedIcon: Icons.map,
     ),
     _CrmDestination(
-      label: 'Search and Reporting',
-      icon: Icons.manage_search,
-      selectedIcon: Icons.query_stats,
-    ),
-    _CrmDestination(
       label: 'Archive',
       icon: Icons.archive_outlined,
       selectedIcon: Icons.archive,
+    ),
+    _CrmDestination(
+      label: 'Search and Reporting',
+      icon: Icons.manage_search,
+      selectedIcon: Icons.query_stats,
     ),
   ];
 
@@ -735,12 +735,12 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             focusRecordKey: _mapFocus,
                             focusRevision: _mapRevision,
                           ),
+                          ArchivePage(store: _store),
                           SearchReportingPage(
                             store: _store,
                             onOpenContact: _openContact,
                             onOpenOrganization: _openOrganization,
                           ),
-                          ArchivePage(store: _store),
                           SettingsPage(
                             store: _store,
                             isDarkMode: widget.isDarkMode,
