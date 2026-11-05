@@ -87,68 +87,70 @@ const _militaryBranches = <String>[
   'Other / Allied service',
 ];
 
-const _militaryRanks = <String>[
+final _militaryRanks = <String>[
   '',
-  'Private',
-  'Private Second Class',
-  'Private First Class',
-  'Specialist',
-  'Lance Corporal',
-  'Corporal',
-  'Sergeant',
-  'Staff Sergeant',
-  'Sergeant First Class',
-  'Technical Sergeant',
-  'Gunnery Sergeant',
-  'Master Sergeant',
-  'Senior Master Sergeant',
-  'First Sergeant',
-  'Sergeant Major',
-  'Command Sergeant Major',
-  'Sergeant Major of the Army',
-  'Sergeant Major of the Marine Corps',
-  'Seaman Recruit',
-  'Seaman Apprentice',
-  'Seaman',
-  'Petty Officer Third Class',
-  'Petty Officer Second Class',
-  'Petty Officer First Class',
-  'Chief Petty Officer',
-  'Senior Chief Petty Officer',
-  'Master Chief Petty Officer',
-  'Master Chief Petty Officer of the Navy',
-  'Airman Basic',
-  'Airman',
-  'Airman First Class',
-  'Senior Airman',
-  'Chief Master Sergeant',
-  'Chief Master Sergeant of the Air Force',
-  'Warrant Officer 1',
-  'Chief Warrant Officer 2',
-  'Chief Warrant Officer 3',
-  'Chief Warrant Officer 4',
-  'Chief Warrant Officer 5',
-  'Second Lieutenant',
-  'First Lieutenant',
-  'Captain',
-  'Major',
-  'Lieutenant Colonel',
-  'Colonel',
-  'Brigadier General',
-  'Major General',
-  'Lieutenant General',
-  'General',
-  'General of the Army',
-  'Ensign',
-  'Lieutenant Junior Grade',
-  'Lieutenant',
-  'Lieutenant Commander',
-  'Commander',
-  'Rear Admiral (Lower Half)',
-  'Rear Admiral (Upper Half)',
-  'Vice Admiral',
-  'Admiral',
-  'Fleet Admiral',
+  ...(<String>[
+    'Private',
+    'Private Second Class',
+    'Private First Class',
+    'Specialist',
+    'Lance Corporal',
+    'Corporal',
+    'Sergeant',
+    'Staff Sergeant',
+    'Sergeant First Class',
+    'Technical Sergeant',
+    'Gunnery Sergeant',
+    'Master Sergeant',
+    'Senior Master Sergeant',
+    'First Sergeant',
+    'Sergeant Major',
+    'Command Sergeant Major',
+    'Sergeant Major of the Army',
+    'Sergeant Major of the Marine Corps',
+    'Seaman Recruit',
+    'Seaman Apprentice',
+    'Seaman',
+    'Petty Officer Third Class',
+    'Petty Officer Second Class',
+    'Petty Officer First Class',
+    'Chief Petty Officer',
+    'Senior Chief Petty Officer',
+    'Master Chief Petty Officer',
+    'Master Chief Petty Officer of the Navy',
+    'Airman Basic',
+    'Airman',
+    'Airman First Class',
+    'Senior Airman',
+    'Chief Master Sergeant',
+    'Chief Master Sergeant of the Air Force',
+    'Warrant Officer 1',
+    'Chief Warrant Officer 2',
+    'Chief Warrant Officer 3',
+    'Chief Warrant Officer 4',
+    'Chief Warrant Officer 5',
+    'Second Lieutenant',
+    'First Lieutenant',
+    'Captain',
+    'Major',
+    'Lieutenant Colonel',
+    'Colonel',
+    'Brigadier General',
+    'Major General',
+    'Lieutenant General',
+    'General',
+    'General of the Army',
+    'Ensign',
+    'Lieutenant Junior Grade',
+    'Lieutenant',
+    'Lieutenant Commander',
+    'Commander',
+    'Rear Admiral (Lower Half)',
+    'Rear Admiral (Upper Half)',
+    'Vice Admiral',
+    'Admiral',
+    'Fleet Admiral',
+  ]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()))),
 ];
 
 Future<void> editContact(
@@ -259,6 +261,8 @@ class _ContactsPageState extends State<ContactsPage> {
   ].join(' ');
   String _searchText(Contact c) => '${c.searchText} ${_extraText(c)}';
   String _search = '';
+  bool _activeExpanded = true;
+  bool _inactiveExpanded = true;
   late int? _selected = widget.initialContactId;
   @override
   void initState() {
@@ -320,6 +324,107 @@ class _ContactsPageState extends State<ContactsPage> {
                 ),
               );
         final selected = items.where((c) => c.id == _selected).firstOrNull;
+        final activeItems = items
+            .where((contact) => contact.status == ContactStatus.active)
+            .toList();
+        final inactiveItems = items
+            .where((contact) => contact.status == ContactStatus.inactive)
+            .toList();
+        final visibleActiveCount = _activeExpanded ? activeItems.length : 0;
+        final inactiveHeaderIndex = 1 + visibleActiveCount;
+        final visibleInactiveCount = _inactiveExpanded
+            ? inactiveItems.length
+            : 0;
+
+        Widget sectionHeader({
+          required String title,
+          required int count,
+          required bool expanded,
+          required IconData icon,
+          required VoidCallback onTap,
+        }) => Material(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          child: ListTile(
+            dense: true,
+            leading: Icon(icon),
+            title: Text(
+              title,
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('$count'),
+                const SizedBox(width: 8),
+                Icon(expanded ? Icons.expand_less : Icons.expand_more),
+              ],
+            ),
+            onTap: onTap,
+          ),
+        );
+
+        Widget contactTile(Contact contact) {
+          final lastInteraction = latestInteractionByContact[contact.id];
+          final lastCall = latestCallByContact[contact.id];
+          final needsContact =
+              lastInteraction == null ||
+              lastCall == null ||
+              !lastCall.isAfter(staleCutoff);
+          return ListTile(
+            selected: contact.id == _selected,
+            leading: ContactPhoto(contact, size: 40),
+            title: Row(
+              children: [
+                if (needsContact) ...[
+                  Tooltip(
+                    message: lastInteraction == null
+                        ? 'No interactions recorded'
+                        : lastCall == null
+                        ? 'No call recorded'
+                        : 'No call in the last 30 days',
+                    child: const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.deepOrange,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: Text(
+                    contact.fullName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                RecordStatusIndicator(
+                  isActive: contact.status == ContactStatus.active,
+                  contactStatus: contact.status,
+                ),
+              ],
+            ),
+            subtitle: contact.title.isEmpty ? null : Text(contact.title),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              setState(() => _selected = contact.id);
+              if (constraints.maxWidth < 850) {
+                openDetail(
+                  context,
+                  ContactDetail(
+                    store: widget.store,
+                    id: contact.id!,
+                    onViewMap: widget.onViewMap,
+                  ),
+                  contact.fullName,
+                );
+              }
+            },
+          );
+        }
+
         return RecordBrowser(
           onAdd: () => editContact(context, widget.store),
           filters: TextField(
@@ -333,64 +438,34 @@ class _ContactsPageState extends State<ContactsPage> {
           list: items.isEmpty
               ? const Center(child: Text('No matching contacts'))
               : ListView.builder(
-                  itemCount: items.length,
+                  itemCount: 2 + visibleActiveCount + visibleInactiveCount,
                   itemBuilder: (context, index) {
-                    final c = items[index];
-                    final lastInteraction = latestInteractionByContact[c.id];
-                    final lastCall = latestCallByContact[c.id];
-                    final needsContact =
-                        lastInteraction == null ||
-                        lastCall == null ||
-                        !lastCall.isAfter(staleCutoff);
-                    return ListTile(
-                      selected: c.id == _selected,
-                      leading: ContactPhoto(c, size: 40),
-                      title: Row(
-                        children: [
-                          if (needsContact) ...[
-                            Tooltip(
-                              message: lastInteraction == null
-                                  ? 'No interactions recorded'
-                                  : lastCall == null
-                                  ? 'No call recorded'
-                                  : 'No call in the last 30 days',
-                              child: const Icon(
-                                Icons.warning_amber_rounded,
-                                color: Colors.deepOrange,
-                                size: 18,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Expanded(
-                            child: Text(
-                              c.fullName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          RecordStatusIndicator(
-                            isActive: c.status == ContactStatus.active,
-                            contactStatus: c.status,
-                          ),
-                        ],
-                      ),
-                      subtitle: c.title.isEmpty ? null : Text(c.title),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
-                        setState(() => _selected = c.id);
-                        if (constraints.maxWidth < 850)
-                          openDetail(
-                            context,
-                            ContactDetail(
-                              store: widget.store,
-                              id: c.id!,
-                              onViewMap: widget.onViewMap,
-                            ),
-                            c.fullName,
-                          );
-                      },
+                    if (index == 0) {
+                      return sectionHeader(
+                        title: 'Active accounts',
+                        count: activeItems.length,
+                        expanded: _activeExpanded,
+                        icon: Icons.check_circle_outline,
+                        onTap: () =>
+                            setState(() => _activeExpanded = !_activeExpanded),
+                      );
+                    }
+                    if (index == inactiveHeaderIndex) {
+                      return sectionHeader(
+                        title: 'Inactive accounts',
+                        count: inactiveItems.length,
+                        expanded: _inactiveExpanded,
+                        icon: Icons.pause_circle_outline,
+                        onTap: () => setState(
+                          () => _inactiveExpanded = !_inactiveExpanded,
+                        ),
+                      );
+                    }
+                    if (index < inactiveHeaderIndex) {
+                      return contactTile(activeItems[index - 1]);
+                    }
+                    return contactTile(
+                      inactiveItems[index - inactiveHeaderIndex - 1],
                     );
                   },
                 ),
@@ -713,26 +788,22 @@ class _ContactDetailState extends State<ContactDetail> {
                 : Row(
                     children: [
                       Expanded(
-                        child: DropdownButton<int>(
-                          value: phoneIndex,
-                          isExpanded: true,
-                          underline: const SizedBox.shrink(),
-                          items: [
+                        child: AnchoredDropdown<int>(
+                          label: 'Choose phone number',
+                          initialSelection: phoneIndex,
+                          entries: [
                             for (
                               var index = 0;
                               index < phoneNumbers.length;
                               index++
                             )
-                              DropdownMenuItem(
+                              DropdownMenuEntry(
                                 value: index,
-                                child: Text(
-                                  '${phoneNumbers[index].label}: ${formatPhoneForDisplay(phoneNumbers[index].number)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                label:
+                                    '${phoneNumbers[index].label}: ${formatPhoneForDisplay(phoneNumbers[index].number)}',
                               ),
                           ],
-                          onChanged: (index) {
+                          onSelected: (index) {
                             if (index != null) {
                               setState(() => _selectedPhoneIndex = index);
                             }
@@ -769,26 +840,22 @@ class _ContactDetailState extends State<ContactDetail> {
                 : Row(
                     children: [
                       Expanded(
-                        child: DropdownButton<int>(
-                          value: emailIndex,
-                          isExpanded: true,
-                          underline: const SizedBox.shrink(),
-                          items: [
+                        child: AnchoredDropdown<int>(
+                          label: 'Choose email address',
+                          initialSelection: emailIndex,
+                          entries: [
                             for (
                               var index = 0;
                               index < emailAddresses.length;
                               index++
                             )
-                              DropdownMenuItem(
+                              DropdownMenuEntry(
                                 value: index,
-                                child: Text(
-                                  '${emailAddresses[index].label}: ${emailAddresses[index].address}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                label:
+                                    '${emailAddresses[index].label}: ${emailAddresses[index].address}',
                               ),
                           ],
-                          onChanged: (index) {
+                          onSelected: (index) {
                             if (index != null) {
                               setState(() => _selectedEmailIndex = index);
                             }

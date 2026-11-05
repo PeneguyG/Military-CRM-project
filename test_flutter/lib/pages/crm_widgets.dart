@@ -96,6 +96,77 @@ Future<void> runDatabaseAction(
   }
 }
 
+/// A select-only menu anchored below its field so it does not cover the field
+/// while an option is being chosen.
+class AnchoredDropdown<T> extends StatefulWidget {
+  const AnchoredDropdown({
+    super.key,
+    required this.label,
+    required this.initialSelection,
+    required this.entries,
+    required this.onSelected,
+    this.menuHeight = 300,
+  });
+
+  final String label;
+  final T? initialSelection;
+  final List<DropdownMenuEntry<T>> entries;
+  final ValueChanged<T?> onSelected;
+  final double menuHeight;
+
+  @override
+  State<AnchoredDropdown<T>> createState() => _AnchoredDropdownState<T>();
+}
+
+class _AnchoredDropdownState<T> extends State<AnchoredDropdown<T>> {
+  final _fieldKey = GlobalKey();
+  late double _menuHeight = widget.menuHeight;
+
+  void _fitMenuBelowField() {
+    final fieldObject = _fieldKey.currentContext?.findRenderObject();
+    final overlayObject = Overlay.maybeOf(context)?.context.findRenderObject();
+    if (fieldObject is! RenderBox || overlayObject is! RenderBox) return;
+    if (!fieldObject.hasSize || !overlayObject.hasSize) return;
+
+    final fieldBottom = fieldObject.localToGlobal(
+      Offset(0, fieldObject.size.height),
+    );
+    final bottomInOverlay = overlayObject.globalToLocal(fieldBottom).dy;
+    final spaceBelow = overlayObject.size.height - bottomInOverlay - 8;
+    final availableHeight = spaceBelow.clamp(1.0, widget.menuHeight).toDouble();
+    if ((_menuHeight - availableHeight).abs() > 1) {
+      setState(() => _menuHeight = availableHeight);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Focus(
+    onFocusChange: (hasFocus) {
+      if (hasFocus) _fitMenuBelowField();
+    },
+    child: Listener(
+      onPointerDown: (_) => _fitMenuBelowField(),
+      child: DropdownMenu<T>(
+        key: _fieldKey,
+        label: Text(widget.label),
+        initialSelection: widget.initialSelection,
+        dropdownMenuEntries: widget.entries,
+        onSelected: widget.onSelected,
+        selectOnly: true,
+        enableSearch: false,
+        requestFocusOnTap: false,
+        menuHeight: _menuHeight,
+        expandedInsets: EdgeInsets.zero,
+        alignmentOffset: const Offset(0, 4),
+        menuStyle: const MenuStyle(alignment: AlignmentDirectional.bottomStart),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(),
+        ),
+      ),
+    ),
+  );
+}
+
 class StatusBadge extends StatelessWidget {
   const StatusBadge(this.status, {super.key});
   final ContactStatus status;
@@ -580,24 +651,17 @@ class _RecordFormState extends State<RecordForm> {
         availableOptions.add(selectedValue);
       }
 
-      return DropdownButtonFormField<String>(
-        initialValue: selectedValue,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: entry.value,
-          border: const OutlineInputBorder(),
-        ),
-        items: [
+      return AnchoredDropdown<String>(
+        label: entry.value,
+        initialSelection: selectedValue,
+        entries: [
           for (final option in availableOptions)
-            DropdownMenuItem(
+            DropdownMenuEntry(
               value: option,
-              child: Text(
-                _dropdownOptionLabel(entry.key, option),
-                overflow: TextOverflow.ellipsis,
-              ),
+              label: _dropdownOptionLabel(entry.key, option),
             ),
         ],
-        onChanged: (value) => setState(() {
+        onSelected: (value) => setState(() {
           _dropdownValues[entry.key] = value ?? '';
         }),
       );
@@ -690,18 +754,14 @@ class _RecordFormState extends State<RecordForm> {
           children: [
             Expanded(
               flex: 2,
-              child: DropdownButtonFormField<String>(
-                initialValue: selectedLabel,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Label',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
+              child: AnchoredDropdown<String>(
+                label: 'Label',
+                initialSelection: selectedLabel,
+                entries: [
                   for (final label in labels)
-                    DropdownMenuItem(value: label, child: Text(label)),
+                    DropdownMenuEntry(value: label, label: label),
                 ],
-                onChanged: (value) => setState(
+                onSelected: (value) => setState(
                   () => _dropdownValues['phone_label'] = value ?? 'Mobile',
                 ),
               ),
@@ -758,18 +818,14 @@ class _RecordFormState extends State<RecordForm> {
           children: [
             Expanded(
               flex: 2,
-              child: DropdownButtonFormField<String>(
-                initialValue: _additionalPhones[index].label,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Label',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
+              child: AnchoredDropdown<String>(
+                label: 'Label',
+                initialSelection: _additionalPhones[index].label,
+                entries: [
                   for (final label in _contactPhoneLabels)
-                    DropdownMenuItem(value: label, child: Text(label)),
+                    DropdownMenuEntry(value: label, label: label),
                 ],
-                onChanged: (value) => setState(
+                onSelected: (value) => setState(
                   () => _additionalPhones[index].label = value ?? 'Other',
                 ),
               ),
@@ -817,18 +873,14 @@ class _RecordFormState extends State<RecordForm> {
           children: [
             Expanded(
               flex: 2,
-              child: DropdownButtonFormField<String>(
-                initialValue: selectedLabel,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Label',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
+              child: AnchoredDropdown<String>(
+                label: 'Label',
+                initialSelection: selectedLabel,
+                entries: [
                   for (final label in labels)
-                    DropdownMenuItem(value: label, child: Text(label)),
+                    DropdownMenuEntry(value: label, label: label),
                 ],
-                onChanged: (value) => setState(
+                onSelected: (value) => setState(
                   () => _dropdownValues['email_label'] = value ?? 'Primary',
                 ),
               ),
@@ -885,18 +937,14 @@ class _RecordFormState extends State<RecordForm> {
           children: [
             Expanded(
               flex: 2,
-              child: DropdownButtonFormField<String>(
-                initialValue: _additionalEmails[index].label,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Label',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
+              child: AnchoredDropdown<String>(
+                label: 'Label',
+                initialSelection: _additionalEmails[index].label,
+                entries: [
                   for (final label in _contactEmailLabels)
-                    DropdownMenuItem(value: label, child: Text(label)),
+                    DropdownMenuEntry(value: label, label: label),
                 ],
-                onChanged: (value) => setState(
+                onSelected: (value) => setState(
                   () => _additionalEmails[index].label = value ?? 'Other',
                 ),
               ),
@@ -1152,37 +1200,36 @@ class _RecordFormState extends State<RecordForm> {
                     child: _recordField(entry),
                   ),
                 if (!widget.organizationForm) ...[
-                  DropdownButtonFormField<int>(
-                    initialValue: _organizationId ?? -1,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Organization',
-                    ),
-                    items: [
-                      const DropdownMenuItem(
+                  AnchoredDropdown<int>(
+                    label: 'Organization',
+                    initialSelection: _organizationId ?? -1,
+                    entries: [
+                      const DropdownMenuEntry(
                         value: -1,
-                        child: Text('No organization'),
+                        label: 'No organization',
                       ),
                       for (final o in widget.organizations ?? <Organization>[])
-                        DropdownMenuItem(
-                          value: o.id,
-                          child: Text(
-                            '${o.name}${o.isArchived ? ' (Archived)' : ''}',
-                            overflow: TextOverflow.ellipsis,
+                        if (o.id != null)
+                          DropdownMenuEntry(
+                            value: o.id!,
+                            label:
+                                '${o.name}${o.isArchived ? ' (Archived)' : ''}',
                           ),
-                        ),
                     ],
-                    onChanged: (v) =>
-                        setState(() => _organizationId = v == -1 ? null : v),
+                    onSelected: (value) => setState(
+                      () => _organizationId = value == -1 ? null : value,
+                    ),
                   ),
-                  DropdownButtonFormField<ContactStatus>(
-                    initialValue: _status,
-                    decoration: const InputDecoration(labelText: 'Status'),
-                    items: [
+                  AnchoredDropdown<ContactStatus>(
+                    label: 'Status',
+                    initialSelection: _status,
+                    entries: [
                       for (final s in ContactStatus.values)
-                        DropdownMenuItem(value: s, child: Text(label(s.name))),
+                        DropdownMenuEntry(value: s, label: label(s.name)),
                     ],
-                    onChanged: (s) => setState(() => _status = s!),
+                    onSelected: (status) => setState(
+                      () => _status = status ?? ContactStatus.active,
+                    ),
                   ),
                 ],
               ],
@@ -1594,20 +1641,14 @@ class _InteractionFormState extends State<InteractionForm> {
                             'Record what happened. Opening a phone app does not confirm a completed call or sent text.',
                           ),
                           const SizedBox(height: 16),
-                          DropdownButtonFormField<String>(
-                            initialValue: _type,
-                            decoration: const InputDecoration(
-                              labelText: 'Interaction type',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: [
+                          AnchoredDropdown<String>(
+                            label: 'Interaction type',
+                            initialSelection: _type,
+                            entries: [
                               for (final type in InteractionLog.types)
-                                DropdownMenuItem(
-                                  value: type,
-                                  child: Text(type),
-                                ),
+                                DropdownMenuEntry(value: type, label: type),
                             ],
-                            onChanged: (value) =>
+                            onSelected: (value) =>
                                 setState(() => _type = value ?? _type),
                           ),
                           const SizedBox(height: 12),

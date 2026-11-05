@@ -46,10 +46,13 @@ store serializes operations and publishes changes only after commit. Save forms
 wait for completion and retain typed values on failure.
 
 The Python schema retains `user_version = 1`. Additive Flutter extensions are
-tracked separately in `crm_app_migrations` (currently version 1):
+tracked separately in `crm_app_migrations` (currently version 13):
 
 - Organizations and contacts gain nullable free-form `address` and `is_archived`.
-- Contacts gain `status` (active/inactive/deceased).
+- Contacts gain separate active/inactive and archived states.
+- Contacts gain a primary phone label and any number of additional labeled phone
+  numbers; legacy secondary phone values are migrated as `Secondary` numbers.
+- Contacts can store multiple labeled email addresses.
 - Interactions gain an organization snapshot. Old rows are backfilled from the
   contact's current organization because older historical affiliation is unknown.
 - Database triggers reject hard deletion of contacts and organizations.

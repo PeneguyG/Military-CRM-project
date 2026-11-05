@@ -14,6 +14,7 @@ import 'pages/organizations_page.dart';
 import 'pages/home_page.dart';
 import 'pages/archive_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/search_reporting_page.dart';
 import 'models/crm_models.dart';
 
 void main() => runApp(const MilitaryCrmApp());
@@ -549,9 +550,10 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             focusRecordKey: _mapFocus,
                             focusRevision: _mapRevision,
                           ),
-                          _SectionPlaceholder(
-                            title: _destinations[4].label,
-                            icon: _destinations[4].icon,
+                          SearchReportingPage(
+                            store: _store,
+                            onOpenContact: _openContact,
+                            onOpenOrganization: _openOrganization,
                           ),
                           ArchivePage(store: _store),
                           SettingsPage(
@@ -654,24 +656,4 @@ class _NavigationItem extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Keeps a destination visibly routable while its full feature page is pending.
-class _SectionPlaceholder extends StatelessWidget {
-  const _SectionPlaceholder({required this.title, required this.icon});
-
-  final String title;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 48, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(height: 12),
-        Text(title, style: Theme.of(context).textTheme.headlineSmall),
-      ],
-    ),
-  );
 }
