@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../crm_store.dart';
@@ -5,8 +7,6 @@ import '../models/crm_models.dart';
 import 'crm_widgets.dart';
 
 enum _SearchScope { all, contacts, organizations }
-
-enum _FilterField { name, tag, location, militaryRank }
 
 class SearchReportingPage extends StatefulWidget {
   const SearchReportingPage({
@@ -25,10 +25,14 @@ class SearchReportingPage extends StatefulWidget {
 }
 
 class _SearchReportingPageState extends State<SearchReportingPage> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _searchController = TextEditingController();
   _SearchScope _scope = _SearchScope.all;
-  _FilterField _filterField = _FilterField.name;
-  int? _selectedTagId;
+  final Set<int> _selectedContactIds = {};
+  final Set<int> _selectedOrganizationIds = {};
+  final Set<int> _selectedTagIds = {};
+  final Set<String> _selectedLocations = {};
+  final Set<String> _selectedRanks = {};
 
   @override
   void dispose() {
@@ -44,6 +48,14 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
     final haystack = searchableText.toLowerCase();
     return terms.every(haystack.contains);
   }
+
+  int get _activeFilterCount =>
+      _selectedContactIds.length +
+      _selectedOrganizationIds.length +
+      _selectedTagIds.length +
+      _selectedLocations.length +
+      _selectedRanks.length +
+      (_scope == _SearchScope.all ? 0 : 1);
 
   List<String> _tagsFor(Contact contact) {
     final matchingTags = widget.store.profileTags.where((tag) {
@@ -63,59 +75,11 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
         .toList();
   }
 
-  String get _filterLabel => switch (_filterField) {
-    _FilterField.name => 'Name',
-    _FilterField.tag => 'Tag',
-    _FilterField.location => 'Location',
-    _FilterField.militaryRank => 'Military rank',
-  };
-
   bool _hasTag(Contact contact, ProfileTagDefinition tag) =>
       (tag.id != null && contact.customTagIds.contains(tag.id)) ||
       (tag.category == 'preferred_contact' &&
           tag.value == contact.preferredContactMethod) ||
       (tag.category == 'life_status' && tag.value == contact.lifeStatus);
-
-  bool _matchesContact(
-    Contact contact,
-    String query,
-    ProfileTagDefinition? tag,
-  ) {
-    switch (_filterField) {
-      case _FilterField.name:
-        return query.isEmpty || _matches(query, contact.fullName);
-      case _FilterField.tag:
-        return tag != null && _hasTag(contact, tag);
-      case _FilterField.location:
-        final organization = widget.store.organization(contact.organizationId);
-        final location = [
-          contact.address,
-          contact.latitude?.toString() ?? '',
-          contact.longitude?.toString() ?? '',
-          organization?.address ?? '',
-        ].join(' ');
-        return query.isEmpty || _matches(query, location);
-      case _FilterField.militaryRank:
-        return query.isEmpty || _matches(query, contact.militaryRank);
-    }
-  }
-
-  bool _matchesOrganization(Organization organization, String query) {
-    switch (_filterField) {
-      case _FilterField.name:
-        return query.isEmpty || _matches(query, organization.name);
-      case _FilterField.tag:
-      case _FilterField.militaryRank:
-        return false;
-      case _FilterField.location:
-        final location = [
-          organization.address,
-          organization.latitude?.toString() ?? '',
-          organization.longitude?.toString() ?? '',
-        ].join(' ');
-        return query.isEmpty || _matches(query, location);
-    }
-  }
 
   String _tagCategoryLabel(String category) => switch (category) {
     'preferred_contact' => 'Preferred contact',
@@ -123,26 +87,122 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
     _ => 'Custom',
   };
 
+  String _contactSearchText(Contact contact) {
+    final organization = widget.store.organization(contact.organizationId);
+    return [
+      contact.searchText,
+      ..._tagsFor(contact),
+      organization?.searchText ?? '',
+    ].join(' ');
+  }
+
+  bool _matchesContact(Contact contact, String query) {
+    if (_scope == _SearchScope.organizations) return false;
+    if (_selectedContactIds.isNotEmpty &&
+        !(_selectedContactIds.contains(contact.id))) {
+      return false;
+    }
+    if (_selectedContactIds.isEmpty && _selectedOrganizationIds.isNotEmpty) {
+      return false;
+    }
+    if (_selectedTagIds.isNotEmpty &&
+        !widget.store.profileTags.any(
+          (tag) => _selectedTagIds.contains(tag.id) && _hasTag(contact, tag),
+        )) {
+      return false;
+    }
+    if (_selectedRanks.isNotEmpty &&
+        !_selectedRanks.contains(contact.militaryRank.trim())) {
+      return false;
+    }
+    if (_selectedLocations.isNotEmpty) {
+      final organization = widget.store.organization(contact.organizationId);
+      if (!_selectedLocations.contains(contact.address.trim()) &&
+          !_selectedLocations.contains(organization?.address.trim())) {
+        return false;
+      }
+    }
+    return query.isEmpty || _matches(query, _contactSearchText(contact));
+  }
+
+  bool _matchesOrganization(Organization organization, String query) {
+    if (_scope == _SearchScope.contacts ||
+        _selectedContactIds.isNotEmpty && _selectedOrganizationIds.isEmpty ||
+        _selectedTagIds.isNotEmpty ||
+        _selectedRanks.isNotEmpty) {
+      return false;
+    }
+    if (_selectedOrganizationIds.isNotEmpty &&
+        !(_selectedOrganizationIds.contains(organization.id))) {
+      return false;
+    }
+    if (_selectedLocations.isNotEmpty &&
+        !_selectedLocations.contains(organization.address.trim())) {
+      return false;
+    }
+    return query.isEmpty || _matches(query, organization.searchText);
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _scope = _SearchScope.all;
+      _selectedContactIds.clear();
+      _selectedOrganizationIds.clear();
+      _selectedTagIds.clear();
+      _selectedLocations.clear();
+      _selectedRanks.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.store,
     builder: (context, _) {
       final query = _searchController.text.trim();
-      final tags = widget.store.profileTags
-          .where((tag) => tag.id != null)
-          .toList();
-      final selectedTag = tags
-          .where((tag) => tag.id == _selectedTagId)
-          .firstOrNull;
-      final hasFilter = _filterField == _FilterField.tag
-          ? selectedTag != null
-          : query.isNotEmpty;
+      final contactsWithIds =
+          widget.store.contacts
+              .where((contact) => !contact.isArchived && contact.id != null)
+              .toList()
+            ..sort(
+              (a, b) =>
+                  a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
+            );
+      final organizationsWithIds =
+          widget.store.organizations
+              .where(
+                (organization) =>
+                    !organization.isArchived && organization.id != null,
+              )
+              .toList()
+            ..sort(
+              (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+            );
+      final tagDefinitions =
+          widget.store.profileTags.where((tag) => tag.id != null).toList()
+            ..sort(
+              (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()),
+            );
+      final locations = <String>{
+        for (final contact in contactsWithIds)
+          if (contact.address.trim().isNotEmpty) contact.address.trim(),
+        for (final organization in organizationsWithIds)
+          if (organization.address.trim().isNotEmpty)
+            organization.address.trim(),
+      }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final ranks =
+          contactsWithIds
+              .map((contact) => contact.militaryRank.trim())
+              .where((rank) => rank.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final hasFilter = query.isNotEmpty || _activeFilterCount > 0;
       final contacts =
           _scope == _SearchScope.organizations
                 ? <Contact>[]
                 : widget.store.contacts.where((contact) {
                     if (contact.isArchived) return false;
-                    return _matchesContact(contact, query, selectedTag);
+                    return _matchesContact(contact, query);
                   }).toList()
             ..sort(
               (a, b) =>
@@ -159,26 +219,40 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
               (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
             );
 
-      return SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1160),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _searchSection(
-                  context,
-                  query,
-                  hasFilter,
-                  tags,
-                  selectedTag,
-                  contacts,
-                  organizations,
-                ),
-                const Divider(height: 48, indent: 8, endIndent: 8),
-                _analyticsSection(context),
-              ],
+      final drawerWidth = math.min(
+        420.0,
+        MediaQuery.sizeOf(context).width * 0.85,
+      );
+      return Scaffold(
+        key: _scaffoldKey,
+        endDrawer: _filterDrawer(
+          context,
+          drawerWidth,
+          contactsWithIds,
+          organizationsWithIds,
+          tagDefinitions,
+          locations,
+          ranks,
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1160),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _searchSection(
+                    context,
+                    query,
+                    hasFilter,
+                    contacts,
+                    organizations,
+                  ),
+                  const Divider(height: 48, indent: 8, endIndent: 8),
+                  _analyticsSection(context),
+                ],
+              ),
             ),
           ),
         ),
@@ -190,8 +264,6 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
     BuildContext context,
     String query,
     bool hasFilter,
-    List<ProfileTagDefinition> tags,
-    ProfileTagDefinition? selectedTag,
     List<Contact> contacts,
     List<Organization> organizations,
   ) {
@@ -205,120 +277,49 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
             Text('Filter records', style: theme.textTheme.titleLarge),
             const SizedBox(height: 4),
             Text(
-              'Choose a field, then enter a value or select a profile tag.',
+              'Search records, then use the filter button to narrow results by selected values.',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            PopupMenuButton<_FilterField>(
-              tooltip: 'Choose which field to filter',
-              onSelected: (field) => setState(() {
-                _filterField = field;
-                _searchController.clear();
-              }),
-              itemBuilder: (context) => const [
-                PopupMenuItem(value: _FilterField.name, child: Text('Name')),
-                PopupMenuItem(value: _FilterField.tag, child: Text('Tag')),
-                PopupMenuItem(
-                  value: _FilterField.location,
-                  child: Text('Location'),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (_) => setState(() {}),
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      labelText: 'Search records',
+                      hintText:
+                          'Search names, tags, locations, or military ranks',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: query.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.close),
+                            ),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
                 ),
-                PopupMenuItem(
-                  value: _FilterField.militaryRank,
-                  child: Text('Military rank'),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: 'Open filters',
+                  onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+                  icon: Badge(
+                    isLabelVisible: _activeFilterCount > 0,
+                    label: Text('$_activeFilterCount'),
+                    child: const Icon(Icons.filter_alt_outlined),
+                  ),
                 ),
               ],
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.secondaryContainer,
-                  border: Border.all(color: theme.colorScheme.outline),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 11,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.filter_list),
-                      const SizedBox(width: 8),
-                      Text('Filter by: $_filterLabel'),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.arrow_drop_down),
-                    ],
-                  ),
-                ),
-              ),
             ),
             const SizedBox(height: 12),
-            if (_filterField == _FilterField.tag)
-              if (tags.isEmpty)
-                const InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'Profile tag',
-                    border: OutlineInputBorder(),
-                  ),
-                  child: Text('No profile tags are available.'),
-                )
-              else
-                AnchoredDropdown<int>(
-                  label: 'Choose a profile tag',
-                  initialSelection: selectedTag?.id,
-                  entries: [
-                    for (final tag in tags)
-                      DropdownMenuEntry(
-                        value: tag.id!,
-                        label:
-                            '${tag.label} · ${_tagCategoryLabel(tag.category)}',
-                      ),
-                  ],
-                  onSelected: (id) => setState(() => _selectedTagId = id),
-                )
-            else
-              TextField(
-                controller: _searchController,
-                onChanged: (_) => setState(() {}),
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  labelText: 'Filter by $_filterLabel',
-                  hintText: switch (_filterField) {
-                    _FilterField.name => 'Enter a contact or organization name',
-                    _FilterField.location => 'Enter an address or location',
-                    _FilterField.militaryRank => 'Enter a military rank',
-                    _FilterField.tag => null,
-                  },
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: query.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: 'Clear filter value',
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {});
-                          },
-                          icon: const Icon(Icons.close),
-                        ),
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            const SizedBox(height: 12),
-            SegmentedButton<_SearchScope>(
-              segments: const [
-                ButtonSegment(value: _SearchScope.all, label: Text('All')),
-                ButtonSegment(
-                  value: _SearchScope.contacts,
-                  label: Text('Contacts'),
-                ),
-                ButtonSegment(
-                  value: _SearchScope.organizations,
-                  label: Text('Organizations'),
-                ),
-              ],
-              selected: {_scope},
-              onSelectionChanged: (selection) =>
-                  setState(() => _scope = selection.first),
-            ),
             if (hasFilter) ...[
               const Divider(height: 28),
               Text(
@@ -340,9 +341,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
             ] else ...[
               const SizedBox(height: 12),
               Text(
-                _filterField == _FilterField.tag
-                    ? 'Choose a profile tag to see matching contacts.'
-                    : 'Enter a value to filter contacts and organizations.',
+                'Enter a search or choose filters to see matching records.',
                 style: theme.textTheme.bodySmall,
               ),
             ],
@@ -351,6 +350,191 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
       ),
     );
   }
+
+  Widget _filterDrawer(
+    BuildContext context,
+    double width,
+    List<Contact> contacts,
+    List<Organization> organizations,
+    List<ProfileTagDefinition> tags,
+    List<String> locations,
+    List<String> ranks,
+  ) => Drawer(
+    width: width,
+    child: SafeArea(
+      child: Builder(
+        builder: (drawerContext) => Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 12, 12),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.filter_alt_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Filter records',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close filters',
+                    onPressed: () =>
+                        Scaffold.of(drawerContext).closeEndDrawer(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: SegmentedButton<_SearchScope>(
+                      segments: const [
+                        ButtonSegment(
+                          value: _SearchScope.all,
+                          label: Text('All'),
+                        ),
+                        ButtonSegment(
+                          value: _SearchScope.contacts,
+                          label: Text('Contacts'),
+                        ),
+                        ButtonSegment(
+                          value: _SearchScope.organizations,
+                          label: Text('Organizations'),
+                        ),
+                      ],
+                      selected: {_scope},
+                      onSelectionChanged: (selection) =>
+                          setState(() => _scope = selection.first),
+                    ),
+                  ),
+                  _selectionGroup<int>(
+                    title: 'Contact names',
+                    selected: _selectedContactIds,
+                    choices: [
+                      for (final contact in contacts)
+                        _FilterChoice(contact.id!, contact.fullName),
+                    ],
+                    onToggle: (id, selected) => selected
+                        ? _selectedContactIds.add(id)
+                        : _selectedContactIds.remove(id),
+                  ),
+                  _selectionGroup<int>(
+                    title: 'Organization names',
+                    selected: _selectedOrganizationIds,
+                    choices: [
+                      for (final organization in organizations)
+                        _FilterChoice(organization.id!, organization.name),
+                    ],
+                    onToggle: (id, selected) => selected
+                        ? _selectedOrganizationIds.add(id)
+                        : _selectedOrganizationIds.remove(id),
+                  ),
+                  _selectionGroup<int>(
+                    title: 'Tags',
+                    selected: _selectedTagIds,
+                    choices: [
+                      for (final tag in tags)
+                        _FilterChoice(
+                          tag.id!,
+                          '${tag.label} · ${_tagCategoryLabel(tag.category)}',
+                        ),
+                    ],
+                    onToggle: (id, selected) => selected
+                        ? _selectedTagIds.add(id)
+                        : _selectedTagIds.remove(id),
+                  ),
+                  _selectionGroup<String>(
+                    title: 'Locations',
+                    selected: _selectedLocations,
+                    choices: [
+                      for (final location in locations)
+                        _FilterChoice(location, location),
+                    ],
+                    onToggle: (location, selected) => selected
+                        ? _selectedLocations.add(location)
+                        : _selectedLocations.remove(location),
+                  ),
+                  _selectionGroup<String>(
+                    title: 'Military ranks',
+                    selected: _selectedRanks,
+                    choices: [
+                      for (final rank in ranks) _FilterChoice(rank, rank),
+                    ],
+                    onToggle: (rank, selected) => selected
+                        ? _selectedRanks.add(rank)
+                        : _selectedRanks.remove(rank),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: _activeFilterCount == 0 ? null : _clearFilters,
+                    child: const Text('Clear all'),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: () =>
+                        Scaffold.of(drawerContext).closeEndDrawer(),
+                    child: const Text('Done'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _selectionGroup<T>({
+    required String title,
+    required Set<T> selected,
+    required List<_FilterChoice<T>> choices,
+    required void Function(T value, bool isSelected) onToggle,
+  }) => ExpansionTile(
+    title: Text(title),
+    subtitle: selected.isEmpty ? null : Text('${selected.length} selected'),
+    children: [
+      if (choices.isEmpty)
+        const ListTile(title: Text('No options available'))
+      else
+        SizedBox(
+          height: math.min(choices.length * 52.0, 260.0),
+          child: ListView.builder(
+            itemCount: choices.length,
+            itemBuilder: (context, index) {
+              final choice = choices[index];
+              return CheckboxListTile(
+                dense: true,
+                value: selected.contains(choice.value),
+                title: Text(
+                  choice.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                controlAffinity: ListTileControlAffinity.leading,
+                onChanged: (value) =>
+                    setState(() => onToggle(choice.value, value ?? false)),
+              );
+            },
+          ),
+        ),
+    ],
+  );
 
   Widget _contactResult(BuildContext context, Contact contact) {
     final tags = _tagsFor(contact);
@@ -585,6 +769,13 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
       ),
     );
   }
+}
+
+class _FilterChoice<T> {
+  const _FilterChoice(this.value, this.label);
+
+  final T value;
+  final String label;
 }
 
 class _ReportMetric {
