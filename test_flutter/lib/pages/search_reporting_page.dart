@@ -102,7 +102,8 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
         !(_selectedContactIds.contains(contact.id))) {
       return false;
     }
-    if (_selectedContactIds.isEmpty && _selectedOrganizationIds.isNotEmpty) {
+    if (_selectedOrganizationIds.isNotEmpty &&
+        !_selectedOrganizationIds.contains(contact.organizationId)) {
       return false;
     }
     if (_selectedTagIds.isNotEmpty &&
@@ -428,7 +429,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
                         : _selectedContactIds.remove(id),
                   ),
                   _selectionGroup<int>(
-                    title: 'Organization names',
+                    title: 'Organizations & linked contacts',
                     selected: _selectedOrganizationIds,
                     choices: [
                       for (final organization in organizations)

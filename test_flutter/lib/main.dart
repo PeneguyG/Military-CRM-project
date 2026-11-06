@@ -154,6 +154,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
     with WidgetsBindingObserver {
   bool _isAuthenticated = false;
   ThemeMode? _override;
+  bool _themePreferenceLoaded = false;
   late final Timer _timer;
   Future<CrmStore>? _opening;
   CrmStore? _ownedStore;
@@ -172,6 +173,76 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
       _isAuthenticated = false;
       _opening = null;
     });
+  }
+
+  Future<File> _themePreferenceFile() async {
+    final supportDirectory = await getApplicationSupportDirectory();
+    final directoryPath = Platform.isWindows
+        ? p.join(
+            Platform.environment['APPDATA'] ?? supportDirectory.path,
+            'com.example',
+            'Steel Wings CRM',
+            'MilitaryCRM',
+          )
+        : p.join(supportDirectory.path, 'MilitaryCRM');
+    final directory = Directory(directoryPath);
+    await directory.create(recursive: true);
+    return File(p.join(directory.path, 'theme_preference.txt'));
+  }
+
+  String? _windowsThemePreferencePath() {
+    if (!Platform.isWindows) return null;
+    final appData = Platform.environment['APPDATA'];
+    if (appData == null || appData.isEmpty) return null;
+    return p.join(
+      appData,
+      'com.example',
+      'Steel Wings CRM',
+      'MilitaryCRM',
+      'theme_preference.txt',
+    );
+  }
+
+  Future<void> _loadThemePreference() async {
+    ThemeMode? savedPreference;
+    try {
+      final file = await _themePreferenceFile();
+      if (await file.exists()) {
+        savedPreference = switch ((await file.readAsString()).trim()) {
+          'light' => ThemeMode.light,
+          'dark' => ThemeMode.dark,
+          _ => null,
+        };
+      }
+    } catch (_) {
+      // Start with automatic mode if local preferences cannot be read.
+    }
+    if (!mounted) return;
+    setState(() {
+      _override = savedPreference;
+      _themePreferenceLoaded = true;
+    });
+  }
+
+  void _setThemePreference(ThemeMode? preference) {
+    setState(() => _override = preference);
+    unawaited(_saveThemePreference(preference));
+  }
+
+  Future<void> _saveThemePreference(ThemeMode? preference) async {
+    try {
+      final value = preference?.name ?? 'automatic';
+      final windowsPath = _windowsThemePreferencePath();
+      if (windowsPath != null) {
+        Directory(p.dirname(windowsPath)).createSync(recursive: true);
+        File(windowsPath).writeAsStringSync(value, flush: true);
+        return;
+      }
+      final file = await _themePreferenceFile();
+      await file.writeAsString(value, flush: true);
+    } catch (_) {
+      // Keep the current in-memory selection even if the preference file is unavailable.
+    }
   }
 
   Future<CrmStore> _openStore() async {
@@ -207,6 +278,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_loadThemePreference());
     _timer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (_override == null) setState(() {});
     });
@@ -239,7 +311,9 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
       themeMode: mode,
       theme: _hopeTheme(Brightness.light),
       darkTheme: _hopeTheme(Brightness.dark),
-      home: _isAuthenticated
+      home: !_themePreferenceLoaded
+          ? const _ThemePreferenceLoadingPage()
+          : _isAuthenticated
           ? FutureBuilder<CrmStore>(
               future: _opening!,
               builder: (context, snapshot) {
@@ -288,13 +362,11 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                   store: snapshot.data!,
                   isDarkMode: mode == ThemeMode.dark,
                   automaticTheme: _override == null,
-                  onToggleTheme: () => setState(
-                    () => _override = mode == ThemeMode.dark
-                        ? ThemeMode.light
-                        : ThemeMode.dark,
+                  onToggleTheme: () => _setThemePreference(
+                    mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark,
                   ),
                   onAutomaticThemeChanged: (enabled) =>
-                      setState(() => _override = enabled ? null : mode),
+                      _setThemePreference(enabled ? null : mode),
                   onLock: _lockApp,
                 );
               },
@@ -302,6 +374,14 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
           : _SignInPage(onAuthenticated: _authenticate),
     );
   }
+}
+
+class _ThemePreferenceLoadingPage extends StatelessWidget {
+  const _ThemePreferenceLoadingPage();
+
+  @override
+  Widget build(BuildContext context) =>
+      const Scaffold(body: Center(child: CircularProgressIndicator()));
 }
 
 class _SignInPage extends StatefulWidget {

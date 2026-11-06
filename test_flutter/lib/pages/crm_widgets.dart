@@ -1504,6 +1504,21 @@ class _InteractionFormState extends State<InteractionForm> {
   DateTime? _followUp;
   TimeOfDay? _followUpTime;
 
+  DateTime? get _followUpAt {
+    final date = _followUp;
+    final time = _followUpTime;
+    if (date == null || time == null) return null;
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  bool _isSameDay(DateTime first, DateTime second) =>
+      first.year == second.year &&
+      first.month == second.month &&
+      first.day == second.day;
+
+  TimeOfDay _nextAvailableMinute(DateTime now) =>
+      TimeOfDay.fromDateTime(now.add(const Duration(minutes: 1)));
+
   @override
   void dispose() {
     _summary.dispose();
@@ -1514,33 +1529,108 @@ class _InteractionFormState extends State<InteractionForm> {
   }
 
   Future<void> _selectFollowUpDate() async {
-    final today = DateUtils.dateOnly(DateTime.now());
+    final now = DateTime.now();
+    final earliestDate = DateUtils.dateOnly(
+      now.add(const Duration(minutes: 1)),
+    );
+    final currentDate = _followUp == null
+        ? null
+        : DateUtils.dateOnly(_followUp!);
+    final initialDate =
+        currentDate == null || currentDate.isBefore(earliestDate)
+        ? earliestDate
+        : currentDate;
     final date = await showDatePicker(
       context: context,
-      initialDate: _followUp ?? today,
-      firstDate: today,
-      lastDate: DateTime(today.year + 20),
+      initialDate: initialDate,
+      firstDate: earliestDate,
+      lastDate: DateTime(earliestDate.year + 20),
     );
     if (!mounted || date == null) return;
+    final selectedDate = DateUtils.dateOnly(date);
+    final latestEarliestDate = DateUtils.dateOnly(
+      DateTime.now().add(const Duration(minutes: 1)),
+    );
+    if (selectedDate.isBefore(latestEarliestDate)) {
+      setState(() => _error = 'Choose a follow-up date that has not passed.');
+      return;
+    }
     setState(() {
-      _followUp = date;
+      _followUp = selectedDate;
+      final now = DateTime.now();
+      final existingTime = _followUpTime ?? const TimeOfDay(hour: 9, minute: 0);
+      final existingDateTime = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        existingTime.hour,
+        existingTime.minute,
+      );
+      _followUpTime =
+          _isSameDay(selectedDate, now) && !existingDateTime.isAfter(now)
+          ? _nextAvailableMinute(now)
+          : existingTime;
       _followUpDateText.text = MaterialLocalizations.of(
         context,
-      ).formatMediumDate(date);
-      _followUpTime ??= const TimeOfDay(hour: 9, minute: 0);
+      ).formatMediumDate(selectedDate);
       _followUpTimeText.text = _followUpTime!.format(context);
+      _error = null;
     });
   }
 
   Future<void> _selectFollowUpTime() async {
+    final selectedDate = _followUp;
+    final now = DateTime.now();
+    if (selectedDate != null &&
+        DateUtils.dateOnly(selectedDate).isBefore(DateUtils.dateOnly(now))) {
+      setState(() => _error = 'Choose a follow-up date that has not passed.');
+      return;
+    }
+    var initialTime = _followUpTime ?? const TimeOfDay(hour: 9, minute: 0);
+    if (selectedDate != null && _isSameDay(selectedDate, now)) {
+      final nextMinute = now.add(const Duration(minutes: 1));
+      if (!_isSameDay(nextMinute, now)) {
+        setState(() {
+          _error = 'No time remains today. Choose a later date.';
+        });
+        return;
+      }
+      final initialDateTime = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        initialTime.hour,
+        initialTime.minute,
+      );
+      if (!initialDateTime.isAfter(now)) {
+        initialTime = TimeOfDay.fromDateTime(nextMinute);
+      }
+    }
     final time = await showTimePicker(
       context: context,
-      initialTime: _followUpTime ?? const TimeOfDay(hour: 9, minute: 0),
+      initialTime: initialTime,
     );
     if (!mounted || time == null) return;
+    if (selectedDate != null) {
+      final candidate = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        time.hour,
+        time.minute,
+      );
+      if (!candidate.isAfter(DateTime.now())) {
+        setState(
+          () => _error =
+              'For today, choose a follow-up time later than the current time.',
+        );
+        return;
+      }
+    }
     setState(() {
       _followUpTime = time;
       _followUpTimeText.text = time.format(context);
+      _error = null;
     });
   }
 
@@ -1757,6 +1847,16 @@ class _InteractionFormState extends State<InteractionForm> {
                                   validator: (_) =>
                                       _showFollowUp && _followUp == null
                                       ? 'Choose a date'
+                                      : _showFollowUp &&
+                                            _followUp != null &&
+                                            DateUtils.dateOnly(
+                                              _followUp!,
+                                            ).isBefore(
+                                              DateUtils.dateOnly(
+                                                DateTime.now(),
+                                              ),
+                                            )
+                                      ? 'Choose a date that has not passed'
                                       : null,
                                 );
                                 final timeField = TextFormField(
@@ -1768,10 +1868,19 @@ class _InteractionFormState extends State<InteractionForm> {
                                     suffixIcon: Icon(Icons.schedule),
                                     border: OutlineInputBorder(),
                                   ),
-                                  validator: (_) =>
-                                      _showFollowUp && _followUpTime == null
-                                      ? 'Choose a time'
-                                      : null,
+                                  validator: (_) {
+                                    if (_showFollowUp &&
+                                        _followUpTime == null) {
+                                      return 'Choose a time';
+                                    }
+                                    final scheduled = _followUpAt;
+                                    if (_showFollowUp &&
+                                        scheduled != null &&
+                                        !scheduled.isAfter(DateTime.now())) {
+                                      return 'Choose a future date and time';
+                                    }
+                                    return null;
+                                  },
                                 );
                                 if (constraints.maxWidth < 560) {
                                   return Column(
