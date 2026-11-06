@@ -1,0 +1,41 @@
+name: Desktop compatibility
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+          - os: macos-15
+            target: macos
+          - os: macos-15-intel
+            target: macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: test_flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: python -m unittest -v
+        working-directory: .
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test
+      - if: matrix.target == 'windows'
+        run: flutter build windows --release
+      - if: matrix.target == 'macos'
+        run: bash ../scripts/macos.sh build

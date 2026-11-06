@@ -328,7 +328,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text(
-                              'Could not open the protected database. Use the original Windows account and preserve the database and key files.',
+                              'Could not open the protected database. Use the original Windows account or macOS Keychain and preserve the database and its protected key.',
                             ),
                             const SizedBox(height: 12),
                             SelectableText('${snapshot.error}'),

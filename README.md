@@ -1,6 +1,40 @@
 # Steel Wings CRM
 
-Steel Wings CRM is the Windows desktop application in `test_flutter`.
+Steel Wings CRM is the Windows and macOS desktop application in `test_flutter`.
+
+## Desktop build and run
+
+Use an SDK compatible with the committed lockfile: Flutter 3.47+ / Dart 3.13+.
+The manifest's older minimum does not satisfy the current locked dependencies.
+
+| Step | Windows (PowerShell) | macOS (Terminal, ARM64 or Intel) |
+| --- | --- | --- |
+| Prerequisites | Flutter, Visual Studio Desktop development with C++, Developer Mode | Flutter, full Xcode with command-line tools and accepted license; macOS 12+ runtime |
+| Dependencies | `cd test_flutter; flutter pub get` | `cd test_flutter && flutter pub get` |
+| Run | `flutter run -d windows` | `flutter run -d macos` |
+| Release | `flutter build windows --release` | From repository root: `bash scripts/macos.sh build` |
+| Verify | `flutter analyze; flutter test` | From repository root: `bash scripts/macos.sh check` |
+
+On macOS, the script also offers `bash scripts/macos.sh run` and accepts extra
+Flutter options. It works from any directory; set `FLUTTER` to an SDK executable
+if it is not on PATH. Release builds request both ARM64 and x86_64 and the script
+checks every bundled native binary for both slices. Use a Flutter SDK and plugin
+versions that still supply Intel support; a failed architecture check must be
+resolved before distributing a build to both CPU families.
+
+Launch a built Mac app with:
+
+```sh
+open "test_flutter/build/macos/Build/Products/Release/Steel Wings CRM.app"
+```
+
+Keep the complete `.app` bundle together. The macOS app uses its application
+support directory and the user's Keychain; Windows retains its existing data
+directory and DPAPI keys. macOS sandbox access permits networking and files
+selected through the native picker. Custom database paths outside the sandbox
+may be inaccessible. Sign and notarize macOS builds for external distribution.
+See [platform inventory and verification](docs/PLATFORM_SUPPORT.md) for the
+architecture, dependency inventory and native acceptance checks.
 
 ## Run the Windows app
 
@@ -20,7 +54,7 @@ that folder. Sign in with the password configured for your copy of the app.
 
 ### Run from source
 
-Install Flutter 3.38 or newer and Visual Studio with the **Desktop development
+Install Flutter compatible with the lockfile (currently 3.47+) and Visual Studio with the **Desktop development
 with C++** workload, then open PowerShell in the repository folder and run:
 
 ```powershell

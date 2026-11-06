@@ -112,7 +112,12 @@ class MilitaryCRMDatabase:
         """
         if 'occurred_at' in fields:
             try:
-                stamp = datetime.fromisoformat(fields['occurred_at'])
+                value = fields['occurred_at']
+                # Python before 3.11 does not accept the ISO UTC "Z" suffix.
+                # Keep the same timestamp semantics on Windows and macOS.
+                if isinstance(value, str) and value.endswith('Z'):
+                    value = value[:-1] + '+00:00'
+                stamp = datetime.fromisoformat(value)
                 fields['occurred_at'] = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc).astimezone(
                     timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
             except (TypeError, ValueError) as exc:

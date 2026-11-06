@@ -12,3 +12,7 @@ PRODUCT_BUNDLE_IDENTIFIER = com.steelwings.crm
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Steel Wings CRM. All rights reserved.
+
+// Release builds use both CPU families. Debug inherits ONLY_ACTIVE_ARCH = YES
+// from the project so Runner matches Swift packages built for the current Mac.
+ARCHS = arm64 x86_64

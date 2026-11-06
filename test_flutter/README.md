@@ -1,7 +1,9 @@
 # Military CRM
 
 Single-user Flutter Material 3 CRM with persistent SQLite storage.
-Requires Flutter 3.38+ and Dart 3.10+; verified with the installed Flutter SDK.
+The manifest requires Flutter 3.38+ and Dart 3.10+, but the committed lockfile
+currently requires Flutter 3.47+ and Dart 3.13+. Use the latter for reproducible
+builds; native builds must be verified on their target hosts.
 
 ## Run
 
@@ -11,6 +13,21 @@ From this directory:
 flutter pub get
 flutter run -d windows
 ```
+
+On macOS (Apple Silicon ARM64 or Intel x86_64), install full Xcode, select its
+command-line tools and accept its license, then run from this directory:
+
+```sh
+flutter pub get
+flutter run -d macos
+```
+
+From the repository root, `bash scripts/macos.sh build` creates a release at
+`test_flutter/build/macos/Build/Products/Release/Steel Wings CRM.app` and checks
+both CPU slices in every native binary. `bash scripts/macos.sh check` runs
+analysis and tests. Windows release builds continue to use
+`flutter build windows --release`. See the [root README](../README.md) for the
+side-by-side commands and [platform inventory](../docs/PLATFORM_SUPPORT.md).
 
 New installations start empty. Add an organization in Organizations, then add a
 contact in Contacts and assign it to that organization. Saved records, edits,
@@ -31,6 +48,11 @@ flutter run -d windows --dart-define=CRM_DATABASE_PATH=C:/data/military_crm.sqli
 This opens and migrates that file in place; it does not copy or import it. Existing
 version-1 files are supported. Unknown versions are rejected without replacing
 records. The application does not automatically search for personal database files.
+
+On macOS use the default app-support location. An absolute POSIX path can be
+supplied with `--dart-define=CRM_DATABASE_PATH=/path/to/military_crm.sqlite3`, but
+the sandbox must permit access to it. Standalone `dart run tool/*.dart` utilities
+remain Windows DPAPI tools; macOS Keychain requires the running Flutter host.
 
 ## Database integration
 
