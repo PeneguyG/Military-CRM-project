@@ -1,7 +1,7 @@
-# Encrypted Windows storage and software updates
+# Encrypted Windows and macOS storage
 
-Production `CrmDatabase(path)` connections require encryption. The Windows build
-bundles SQLite3 Multiple Ciphers, configured with its SQLCipher AES-256 profile.
+Production database connections require encryption. Windows and macOS builds
+bundle SQLite3 Multiple Ciphers, configured with its SQLCipher AES-256 profile.
 The app refuses to continue if the encryption engine or protected key is missing.
 `CrmDatabase.unencryptedForTesting` is reserved for disposable test fixtures.
 
@@ -16,11 +16,12 @@ future display-name changes. Replacing the installation directory does not touch
 this folder. `CRM_DATABASE_PATH` still explicitly selects a different database;
 changing it does not move or merge records.
 
-The adjacent `.key.dpapi` file holds a randomly generated 256-bit key protected
-with Windows DPAPI for the current account. Updates reuse it; never regenerate,
-delete or ship this file as part of a release. Preserve the full data folder and
-the Windows user profile. A database copy alone cannot be decrypted on a new
-account or computer; portable password-protected export is not implemented.
+On Windows, the adjacent `.key.dpapi` file holds a randomly generated 256-bit
+key protected with DPAPI for the current account. On macOS, the key is stored in
+the user's Keychain and keyed to the database path. Updates reuse the key; never
+regenerate or delete it. Preserve the data folder and the matching Windows user
+profile or macOS Keychain entry. A database copy alone cannot be decrypted on a
+new account or computer; portable password-protected export is not implemented.
 
 ## Migration and recovery
 
@@ -38,18 +39,19 @@ Future schema versions fail closed instead of downgrading or resetting data.
 Recovery copies are migration snapshots, not ongoing backups.
 
 To restore a recovery copy, close all CRM processes, preserve the complete data
-folder, and restore the chosen encrypted snapshot as the main database together
-with its original `.key.dpapi` file. Restore the database as a coherent SQLite
-file set; stale WAL/SHM files from a different database must not be paired with
-it. Recovery requires the original Windows account/DPAPI credentials.
+folder, and restore the chosen encrypted snapshot as the main database. On
+Windows, retain its original `.key.dpapi` file; on macOS, retain the matching
+Keychain entry. Restore the database as a coherent SQLite file set; stale
+WAL/SHM files from a different database must not be paired with it. Recovery
+requires the original Windows account or macOS Keychain.
 
 The old Python SQLite helper and ordinary SQLite viewers cannot read encrypted
 production files. The Dart sample loader now uses the protected connection.
 `dart run tool/secure_database.dart <existing-path>` performs migration without
 adding sample records and never prints the key.
 
-Key protection currently targets Windows. Other platforms fail explicitly
-rather than silently saving plaintext until their secure key stores are added.
+Key protection currently targets Windows DPAPI and macOS Keychain. Other
+platforms fail explicitly rather than silently saving plaintext.
 
 ## Verification
 

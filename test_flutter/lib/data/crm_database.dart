@@ -17,10 +17,28 @@ const crmSchemaVersion = 16;
 typedef DatabaseSnapshot = Map<String, List<Map<String, Object?>>>;
 
 /// Each operation owns a short-lived connection in a background isolate.
-/// Production connections require the account-protected encryption key.
+/// Production connections require a key protected by the platform key store.
 class CrmDatabase {
-  factory CrmDatabase(String path) =>
-      CrmDatabase._(path, DatabaseKeyStore.loadOrCreate(path));
+  factory CrmDatabase(String path) {
+    if (!Platform.isWindows) {
+      throw UnsupportedError(
+        'Use CrmDatabase.open on macOS; other platforms are not supported.',
+      );
+    }
+    return CrmDatabase._(path, DatabaseKeyStore.loadOrCreate(path));
+  }
+
+  static Future<CrmDatabase> open(String path) async {
+    if (Platform.isMacOS) {
+      return CrmDatabase._(
+        path,
+        await DatabaseKeyStore.loadOrCreateMacOS(path),
+      );
+    }
+    if (Platform.isWindows) return CrmDatabase(path);
+    throw UnsupportedError('Encrypted CRM storage supports Windows and macOS.');
+  }
+
   const CrmDatabase._(this.path, this._encryptionKey);
 
   /// Explicit opt-out only for isolated tests of legacy schemas.

@@ -265,7 +265,8 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
             'military_crm.sqlite3',
           );
     final schema = await rootBundle.loadString('assets/schema_v1.sql');
-    final store = await CrmStore.open(CrmDatabase(databasePath), schema);
+    final database = await CrmDatabase.open(databasePath);
+    final store = await CrmStore.open(database, schema);
     if (!mounted) {
       store.dispose();
     } else {

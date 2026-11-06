@@ -7,6 +7,13 @@
       "type": "dart",
       "program": "lib/main.dart",
       "deviceId": "windows"
+    },
+    {
+      "name": "Steel Wings CRM (macOS)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "macos"
     }
   ]
 }

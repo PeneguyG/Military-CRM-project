@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:win32/win32.dart';
 
 bool hasPlaintextSqliteHeader(File file) {
@@ -16,8 +17,8 @@ bool hasPlaintextSqliteHeader(File file) {
   }
 }
 
-/// The key is bound to the current Windows account, never stored as plaintext.
-/// This file and the database live in application data, outside release folders.
+/// Database keys are protected by Windows DPAPI or macOS Keychain.
+/// The key is never stored as plaintext beside the database.
 class DatabaseKeyStore {
   static String loadOrCreate(String databasePath) {
     if (!Platform.isWindows) {
@@ -62,6 +63,54 @@ class DatabaseKeyStore {
         throw StateError('Could not verify database key storage.');
       pending.renameSync(keyFile.path);
       return key.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    } finally {
+      lock.unlockSync();
+      lock.closeSync();
+    }
+  }
+
+  /// Stores the macOS database key in the user's Keychain.
+  static Future<String> loadOrCreateMacOS(String databasePath) async {
+    final database = File(databasePath);
+    database.parent.createSync(recursive: true);
+    final lock = File('$databasePath.key.lock').openSync(mode: FileMode.append);
+    lock.lockSync(FileLock.blockingExclusive);
+    try {
+      final itemKey =
+          'crm_database_key_v1_${base64Url.encode(utf8.encode(database.absolute.path)).replaceAll('=', '')}';
+      const storage = FlutterSecureStorage(
+        mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+      );
+      final storedKey = await storage.read(key: itemKey);
+      if (storedKey != null) {
+        if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(storedKey)) {
+          throw StateError('The stored database key is invalid.');
+        }
+        return storedKey;
+      }
+      if (File('$databasePath.pre-encryption.enc').existsSync()) {
+        throw StateError(
+          'The recovery database key is missing. Restore the original key before continuing.',
+        );
+      }
+      if (database.existsSync() &&
+          database.lengthSync() > 0 &&
+          !hasPlaintextSqliteHeader(database)) {
+        throw StateError(
+          'The encrypted database key is missing. Restore the original key; the database has not been changed.',
+        );
+      }
+
+      final random = Random.secure();
+      final key = List.generate(
+        32,
+        (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
+      await storage.write(key: itemKey, value: key);
+      if (await storage.read(key: itemKey) != key) {
+        throw StateError('Could not verify database key storage in Keychain.');
+      }
+      return key;
     } finally {
       lock.unlockSync();
       lock.closeSync();

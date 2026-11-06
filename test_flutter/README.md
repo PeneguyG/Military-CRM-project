@@ -19,7 +19,8 @@ archives, restores, and interaction logs survive application restarts.
 The database is `military_crm.sqlite3` under the platform application-support
 folder, in a `MilitaryCRM` subfolder. Click the storage icon beside "Saved locally
 in SQLite" to see its exact path. Builds and `flutter clean` do not erase it.
-The refresh button reloads changes made by the Python helper or another client.
+The database is encrypted; Windows protects its key with DPAPI, and macOS stores
+the key in Keychain. The refresh button reloads changes made by another client.
 
 To explicitly open a database created by the repository's Python helper:
 
@@ -70,8 +71,8 @@ Briefing/Other and inbound interactions remain readable and unchanged. Follow-up
 completion and interaction direction editing are not exposed by these forms.
 
 Archive/restore changes only `is_archived`. Archiving an organization leaves its
-contacts and interaction history intact. The app database is local and is not
-encrypted by this implementation. Use SQLite's backup API for live backups.
+contacts and interaction history intact. Use SQLite's backup API for live
+backups.
 
 ## Interface and platform notes
 
@@ -82,10 +83,14 @@ encrypted by this implementation. Use SQLite's backup API for live backups.
 - Light theme from 06:00 to 18:00 local time; dark otherwise. The sun/moon button
   overrides it; the clock button restores automatic mode.
 
-The Windows runner is included. Enable Windows Developer Mode for plugin symlinks.
+Windows and macOS runners are included. On macOS, install Xcode and run
+`flutter pub get` followed by `flutter run -d macos`. The encrypted database key
+is kept in macOS Keychain. macOS builds must be run on a Mac with Xcode.
+
+On Windows, enable Developer Mode for plugin symlinks.
 CMake 4.2+ uses short intermediate paths to avoid MSBuild failures in deeply nested
 checkouts. With older CMake, use a shorter checkout path if `.tlog` failures occur.
-For Android/iOS, generate runners on a suitable host; those builds are not verified
+For Android/iOS, generate runners on a suitable host; those builds are not enabled
 here. `dart:io` photos and the native SQLite adapter do not target web. Telephone
 and SMS actions require a registered handler on the device.
 
