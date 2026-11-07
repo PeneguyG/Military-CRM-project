@@ -6,6 +6,12 @@ import 'package:greeting_app/main.dart';
 import 'package:greeting_app/models/crm_models.dart';
 import 'package:greeting_app/pages/contacts_page.dart';
 
+Future<void> _signIn(WidgetTester tester) async {
+  await tester.enterText(find.byType(TextField).first, 'Mushroomkingdom24?');
+  await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   const organization = Organization(
     id: 1,
@@ -22,7 +28,7 @@ void main() {
     firstName: 'Alex',
     lastName: 'Morgan',
     title: 'Major',
-    phone: '5550101',
+    phone: '2025550101',
     email: 'alex@example.com',
     address: 'Base',
     spouseName: 'Jordan',
@@ -103,8 +109,11 @@ void main() {
         interactions: [log],
       );
       addTearDown(store.dispose);
-      await tester.pumpWidget(MilitaryCrmApp(store: store));
+      await tester.pumpWidget(
+        MilitaryCrmApp(store: store, loadPreferences: false),
+      );
       await tester.pumpAndSettle();
+      await _signIn(tester);
       await tester.tap(find.byIcon(Icons.people_outline).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Alex Morgan'));
@@ -114,6 +123,7 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
       await tester.enterText(
         find.widgetWithText(TextFormField, 'First name *'),
         'Avery',
@@ -121,6 +131,7 @@ void main() {
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
       expect(store.contact(1)!.firstName, 'Avery');
+      expect(tester.takeException(), isNull);
       final logButton = find.text('Log Interaction / Follow-Up');
       await tester.scrollUntilVisible(
         logButton,
@@ -134,6 +145,7 @@ void main() {
       );
       await tester.tap(logButton);
       await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Summary'),
         'Followed up on event',
@@ -142,6 +154,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(store.interactions.length, 2);
       expect(store.interactions.last.organizationId, 1);
+      expect(tester.takeException(), isNull);
       final archiveButton = find.widgetWithText(OutlinedButton, 'Archive');
       await tester.scrollUntilVisible(
         archiveButton,
@@ -156,12 +169,17 @@ void main() {
       await tester.tap(archiveButton);
       await tester.pumpAndSettle();
       expect(store.contact(1)!.isArchived, isTrue);
+      expect(tester.takeException(), isNull);
       await tester.tap(find.byType(BackButton).first);
       await tester.pumpAndSettle();
       await tester.tap(find.byIcon(Icons.archive_outlined).first);
       await tester.pumpAndSettle();
       expect(find.text('Avery Morgan'), findsOneWidget);
-      await tester.tap(find.text('Mark active').first);
+      expect(tester.takeException(), isNull);
+      final restoreButton = find.text('Restore').first;
+      await tester.ensureVisible(restoreButton);
+      await tester.pumpAndSettle();
+      await tester.tap(restoreButton);
       await tester.pumpAndSettle();
       expect(store.contact(1)!.isArchived, isFalse);
       expect(store.contact(1)!.status, ContactStatus.active);
@@ -176,9 +194,12 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final sample = sampleStore();
     addTearDown(sample.dispose);
-    await tester.pumpWidget(MilitaryCrmApp(store: sample));
+    await tester.pumpWidget(
+      MilitaryCrmApp(store: sample, loadPreferences: false),
+    );
     await tester.pumpAndSettle();
-    expect(find.byType(NavigationRail), findsOneWidget);
+    await _signIn(tester);
+    expect(find.byTooltip('Collapse navigation'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.people_outline).first);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'Sentinel');
@@ -200,8 +221,11 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final sample = sampleStore();
     addTearDown(sample.dispose);
-    await tester.pumpWidget(MilitaryCrmApp(store: sample));
+    await tester.pumpWidget(
+      MilitaryCrmApp(store: sample, loadPreferences: false),
+    );
     await tester.pumpAndSettle();
+    await _signIn(tester);
     await tester.tap(find.byIcon(Icons.business_outlined).first);
     await tester.pumpAndSettle();
     expect(find.text('Veterans Outreach Unit'), findsNothing);
@@ -210,7 +234,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Sam Hayes'), findsOneWidget);
     expect(find.text('Veterans Outreach Unit'), findsOneWidget);
-    await tester.tap(find.text('Mark active').first);
+    final restoreButton = find.text('Restore').first;
+    await tester.ensureVisible(restoreButton);
+    await tester.pumpAndSettle();
+    await tester.tap(restoreButton);
     await tester.pumpAndSettle();
     expect(sample.contact(3)!.status, ContactStatus.active);
     expect(find.text('Sam Hayes'), findsNothing);

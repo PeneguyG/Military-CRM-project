@@ -44,6 +44,8 @@ void main() {
             automaticTheme: false,
             onToggleTheme: () {},
             onAutomaticThemeChanged: (_) {},
+            use24HourFormat: null,
+            onTimeFormatChanged: (_) {},
             onLock: () {},
           ),
         ),
@@ -169,7 +171,7 @@ void main() {
       }
     }
     db.execute('DROP TABLE map_settings');
-    db.execute('DELETE FROM crm_app_migrations WHERE version=16');
+    db.execute('DELETE FROM crm_app_migrations WHERE version>=16');
     db.close();
     final snapshot = await database.initialize(schema);
     expect(

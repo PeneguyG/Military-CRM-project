@@ -979,9 +979,11 @@ class _ContactDetailState extends State<ContactDetail> {
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(width: 8),
-              Text(
-                'Interaction history · Newest first',
-                style: Theme.of(context).textTheme.titleLarge,
+              Expanded(
+                child: Text(
+                  'Interaction history · Newest first',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
               ),
             ],
           ),

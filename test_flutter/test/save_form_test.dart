@@ -97,6 +97,14 @@ void main() {
         find.widgetWithText(TextFormField, 'Organization name *'),
         'Operations Unit',
       );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Industry *'),
+        'Defense',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Email address *'),
+        'operations@example.com',
+      );
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
       expect(store.organizations.single.name, 'Operations Unit');
@@ -109,6 +117,10 @@ void main() {
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Last name *'),
         'Smith',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Phone number'),
+        '2025550100',
       );
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();

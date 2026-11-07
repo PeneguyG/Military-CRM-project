@@ -144,8 +144,9 @@ ThemeData _hopeTheme(Brightness brightness) {
 void main() => runApp(const MilitaryCrmApp());
 
 class MilitaryCrmApp extends StatefulWidget {
-  const MilitaryCrmApp({super.key, this.store});
+  const MilitaryCrmApp({super.key, this.store, this.loadPreferences = true});
   final CrmStore? store;
+  final bool loadPreferences;
   @override
   State<MilitaryCrmApp> createState() => _MilitaryCrmAppState();
 }
@@ -330,7 +331,13 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_loadThemePreference());
+    if (widget.loadPreferences) {
+      unawaited(_loadThemePreference());
+    } else {
+      // Hosts without local preference storage can opt out of the initial
+      // preference read to avoid leaving the startup gate open.
+      _themePreferenceLoaded = true;
+    }
   }
 
   @override
@@ -386,11 +393,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text(
-<<<<<<< Updated upstream
-                              'Could not open the protected database. Use the original Windows account or macOS Keychain and preserve the database and its protected key.',
-=======
-                              'Could not open the protected database. Check that the original platform key is available and that the database file is intact.',
->>>>>>> Stashed changes
+                              'Could not open the protected database. Check that the original Windows account or macOS Keychain key is available and that the database file is intact.',
                             ),
                             const SizedBox(height: 12),
                             SelectableText('${snapshot.error}'),
@@ -788,14 +791,17 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            _tab == _settingsTab
-                                ? 'Settings'
-                                : _destinations[_tab].label,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w600),
+                          Expanded(
+                            child: Text(
+                              _tab == _settingsTab
+                                  ? 'Settings'
+                                  : _destinations[_tab].label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
                           ),
-                          const Spacer(),
                           Padding(
                             padding: const EdgeInsets.only(right: 8),
                             child: IconButton(
