@@ -15,7 +15,7 @@ class SoundexSamples {
       'attributes': {'list': 'bullet'},
     },
     {
-      'insert': 'Fictional Soundex demo record.',
+      'insert': 'Fictional sample record.',
       'attributes': {'italic': true},
     },
     {'insert': '\n'},
@@ -71,7 +71,7 @@ class SoundexSamples {
     ),
   ];
 
-  static List<Contact> contacts(List<int> organizationIds, int tagId) {
+  static List<Contact> contacts(List<int> organizationIds) {
     const people = [
       (
         'John',
@@ -151,7 +151,6 @@ class SoundexSamples {
           militaryRank: people[i].$4,
           preferredContactMethod: i.isEven ? 'Email' : 'Call',
           lifeStatus: 'alive',
-          customTagIds: [tagId],
           title: people[i].$5,
           phone: '202555011${i}',
           phoneLabel: 'Mobile',

@@ -12,6 +12,8 @@ class SettingsPage extends StatelessWidget {
     required this.automaticTheme,
     required this.onToggleTheme,
     required this.onAutomaticThemeChanged,
+    required this.use24HourFormat,
+    required this.onTimeFormatChanged,
     required this.onDatabaseLocation,
   });
 
@@ -20,6 +22,8 @@ class SettingsPage extends StatelessWidget {
   final bool automaticTheme;
   final VoidCallback onToggleTheme;
   final ValueChanged<bool> onAutomaticThemeChanged;
+  final bool? use24HourFormat;
+  final ValueChanged<bool?> onTimeFormatChanged;
   final VoidCallback onDatabaseLocation;
 
   Future<void> _addTag(BuildContext context) async {
@@ -48,10 +52,44 @@ class SettingsPage extends StatelessWidget {
                 onChanged: (_) => onToggleTheme(),
               ),
               SwitchListTile(
-                title: const Text('Automatic time-based theme'),
-                subtitle: const Text('Light 06:00–18:00'),
+                title: const Text('Follow device appearance'),
+                subtitle: const Text('Match the device light or dark theme.'),
                 value: automaticTheme,
                 onChanged: onAutomaticThemeChanged,
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: DropdownButtonFormField<String>(
+                  initialValue: use24HourFormat == null
+                      ? 'device'
+                      : use24HourFormat!
+                      ? '24'
+                      : '12',
+                  decoration: const InputDecoration(labelText: 'Time format'),
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'device',
+                      child: Text('Use device preference'),
+                    ),
+                    DropdownMenuItem(value: '12', child: Text('12-hour time')),
+                    DropdownMenuItem(value: '24', child: Text('24-hour time')),
+                  ],
+                  onChanged: (value) => onTimeFormatChanged(switch (value) {
+                    '12' => false,
+                    '24' => true,
+                    _ => null,
+                  }),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 6, 16, 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Dates and times use this device’s local timezone.',
+                  ),
+                ),
               ),
               ListTile(
                 leading: const Icon(Icons.storage_outlined),
@@ -378,6 +416,44 @@ class _SoundexSamplesCardState extends State<_SoundexSamplesCard> {
     }
   }
 
+  Future<void> _delete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete sample data?'),
+        content: const Text(
+          'This removes the demo organizations and contacts, along with their notes, interactions, and attachments. Any other contacts assigned to a demo organization will become unassigned. Your other records will remain.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete sample data'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _loading = true;
+      _message = null;
+    });
+    try {
+      await widget.store.deleteSoundexSamples();
+      if (mounted) {
+        setState(() => _message = 'Sample data cleanup completed.');
+      }
+    } catch (error) {
+      if (mounted)
+        setState(() => _message = 'Could not delete sample data: $error');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Card(
     child: Padding(
@@ -391,17 +467,28 @@ class _SoundexSamplesCardState extends State<_SoundexSamplesCard> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Add 3 fictional organizations and 6 complete contact profiles, with family details, rich-text notes, talking points, and follow-ups. Existing records are preserved.',
+            'Add 3 fictional organizations and 6 complete contact profiles, with family details, rich-text notes, and follow-ups. Existing records are preserved.',
           ),
           const SizedBox(height: 8),
           const SelectableText(
             'Try: Smyth → Smith · Ashcroft → Ashcraft · Fister → Pfister · Jaxon → Jackson · Rupert → Robert',
           ),
           const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.science_outlined),
-            label: Text(_loading ? 'Loading…' : 'Load sample data'),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: _loading ? null : _load,
+                icon: const Icon(Icons.science_outlined),
+                label: Text(_loading ? 'Loading…' : 'Load sample data'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _loading ? null : _delete,
+                icon: const Icon(Icons.delete_sweep_outlined),
+                label: const Text('Delete sample data'),
+              ),
+            ],
           ),
           if (_message != null)
             Padding(

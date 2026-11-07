@@ -69,7 +69,7 @@ store serializes operations and publishes changes only after commit. Save forms
 wait for completion and retain typed values on failure.
 
 The Python schema retains `user_version = 1`. Additive Flutter extensions are
-tracked separately in `crm_app_migrations` (currently version 13):
+tracked separately in `crm_app_migrations` (currently version 18):
 
 - Organizations and contacts gain nullable free-form `address` and `is_archived`.
 - Contacts gain separate active/inactive and archived states.
@@ -102,8 +102,12 @@ backups.
 - Search, status filtering, active/archived views, notes and talking points.
 - Local photo paths with a fallback avatar for missing files.
 - Call/text actions and manual interaction logging with optional follow-up dates.
-- Light theme from 06:00 to 18:00 local time; dark otherwise. The sun/moon button
-  overrides it; the clock button restores automatic mode.
+- Theme follows the device's light/dark preference by default; Settings can pin
+  light or dark mode.
+- Time display follows the device's 12/24-hour preference by default, with an
+  override in Settings. Dates and times use the device's local timezone.
+- Settings can load or delete the bundled sample data without archiving each
+  sample record individually.
 
 Windows and macOS runners are included. On macOS, install Xcode and run
 `flutter pub get` followed by `flutter run -d macos`. The encrypted database key

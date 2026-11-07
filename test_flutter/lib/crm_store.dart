@@ -104,6 +104,12 @@ class CrmStore extends ChangeNotifier {
     await _persist(_database!.loadSoundexSamples);
   }
 
+  Future<void> deleteSoundexSamples() async {
+    if (_database == null)
+      throw StateError('Sample data requires a saved database.');
+    await _persist(_database!.deleteSoundexSamples);
+  }
+
   Future<void> saveUserLocation(UserLocation location) async {
     if (!OfflineMapHelper.validCoordinates(
       location.latitude,

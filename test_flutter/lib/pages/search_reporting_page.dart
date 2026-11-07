@@ -14,11 +14,15 @@ class SearchReportingPage extends StatefulWidget {
     required this.store,
     required this.onOpenContact,
     required this.onOpenOrganization,
+    required this.onShowContacts,
+    required this.onShowOrganizations,
   });
 
   final CrmStore store;
   final ValueChanged<Contact> onOpenContact;
   final ValueChanged<Organization> onOpenOrganization;
+  final VoidCallback onShowContacts;
+  final VoidCallback onShowOrganizations;
 
   @override
   State<SearchReportingPage> createState() => _SearchReportingPageState();
@@ -38,6 +42,113 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _showDetailDialog(
+    String title,
+    String emptyMessage,
+    List<Widget> items,
+  ) {
+    final size = MediaQuery.sizeOf(context);
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: items.isEmpty
+            ? Text(emptyMessage)
+            : SizedBox(
+                width: math.min(size.width * 0.8, 560),
+                height: math.min(size.height * 0.62, 480),
+                child: ListView.separated(
+                  itemCount: items.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (_, index) => items[index],
+                ),
+              ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showContactsNeedingAttention(
+    List<Contact> contacts,
+    Map<int, DateTime> lastInteractionByContact,
+  ) {
+    final localizations = MaterialLocalizations.of(context);
+    _showDetailDialog(
+      'Contacts needing outreach',
+      'All active contacts have an interaction recorded in the past 30 days.',
+      [
+        for (final contact in contacts)
+          ListTile(
+            leading: const Icon(Icons.person_search_outlined),
+            title: Text(contact.fullName),
+            subtitle: Text(
+              contact.id == null || lastInteractionByContact[contact.id] == null
+                  ? 'No interactions recorded'
+                  : 'Last interaction · ${localizations.formatMediumDate(lastInteractionByContact[contact.id]!)} · ${TimeOfDay.fromDateTime(lastInteractionByContact[contact.id]!.toLocal()).format(context)}',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: contact.id == null
+                ? null
+                : () {
+                    Navigator.pop(context);
+                    widget.onOpenContact(contact);
+                  },
+          ),
+      ],
+    );
+  }
+
+  void _showInteractionDetails(
+    List<InteractionLog> interactions, {
+    String title = 'Interactions · last 30 days',
+  }) {
+    final localizations = MaterialLocalizations.of(context);
+    final ordered = [...interactions]..sort((a, b) => b.date.compareTo(a.date));
+    _showDetailDialog(title, 'No interactions were recorded for this period.', [
+      for (final interaction in ordered)
+        if (widget.store.contact(interaction.contactId) case final contact?)
+          ListTile(
+            leading: const Icon(Icons.forum_outlined),
+            title: Text(contact.fullName),
+            subtitle: Text(
+              '${localizations.formatMediumDate(interaction.date.toLocal())} · ${TimeOfDay.fromDateTime(interaction.date.toLocal()).format(context)} · ${interaction.type}\n${interaction.summary}',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              widget.onOpenContact(contact);
+            },
+          ),
+    ]);
+  }
+
+  void _showFollowUpDetails(String title, List<InteractionLog> followUps) {
+    final localizations = MaterialLocalizations.of(context);
+    _showDetailDialog(title, 'There are no matching follow-ups.', [
+      for (final interaction in followUps)
+        if (widget.store.contact(interaction.contactId) case final contact?)
+          ListTile(
+            leading: const Icon(Icons.event_note_outlined),
+            title: Text(contact.fullName),
+            subtitle: Text(
+              '${interaction.followUpDate == null ? '' : localizations.formatMediumDate(interaction.followUpDate!.toLocal())} · ${formatFollowUpTime(context, interaction.followUpTime)}${interaction.followUpReason.isEmpty ? '' : '\n${interaction.followUpReason}'}',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              widget.onOpenContact(contact);
+            },
+          ),
+    ]);
   }
 
   bool _matches(String query, String searchableText) {
@@ -595,12 +706,23 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
     final recentlyContactedIds = recentInteractions
         .map((interaction) => interaction.contactId)
         .toSet();
-    final contactsNeedingAttention = activeContacts
-        .where((contact) => !recentlyContactedIds.contains(contact.id))
-        .length;
+    final contactsNeedingAttention =
+        activeContacts
+            .where((contact) => !recentlyContactedIds.contains(contact.id))
+            .toList()
+          ..sort((a, b) => a.fullName.compareTo(b.fullName));
 
-    var openFollowUps = 0;
-    var overdueFollowUps = 0;
+    final lastInteractionByContact = <int, DateTime>{};
+    for (final interaction in widget.store.interactions) {
+      final date = interaction.date.toLocal();
+      if (date.isAfter(now)) continue;
+      final previous = lastInteractionByContact[interaction.contactId];
+      if (previous == null || date.isAfter(previous)) {
+        lastInteractionByContact[interaction.contactId] = date;
+      }
+    }
+
+    final openFollowUpItems = <InteractionLog>[];
     for (final interaction in widget.store.interactions) {
       final dueDate = interaction.followUpDate?.toLocal();
       if (dueDate == null || interaction.followUpCompleted) continue;
@@ -610,40 +732,58 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
           contact.status != ContactStatus.active) {
         continue;
       }
-      openFollowUps++;
-      if (DateUtils.dateOnly(dueDate).isBefore(today)) overdueFollowUps++;
+      openFollowUpItems.add(interaction);
     }
+    openFollowUpItems.sort(
+      (a, b) => (a.followUpDate ?? DateTime(9999)).compareTo(
+        b.followUpDate ?? DateTime(9999),
+      ),
+    );
+    final overdueFollowUpItems = openFollowUpItems.where((interaction) {
+      final dueDate = interaction.followUpDate?.toLocal();
+      return dueDate != null && DateUtils.dateOnly(dueDate).isBefore(today);
+    }).toList();
 
     final metrics = [
       _ReportMetric(
         'Interactions · 30 days',
         recentInteractions.length.toString(),
         Icons.forum_outlined,
+        onTap: () => _showInteractionDetails(recentInteractions),
       ),
       _ReportMetric(
         'Average per day',
         (recentInteractions.length / 30).toStringAsFixed(1),
         Icons.show_chart,
+        onTap: () => _showInteractionDetails(recentInteractions),
       ),
       _ReportMetric(
         'Open follow-ups',
-        openFollowUps.toString(),
+        openFollowUpItems.length.toString(),
         Icons.event_note_outlined,
+        onTap: () => _showFollowUpDetails('Open follow-ups', openFollowUpItems),
       ),
       _ReportMetric(
         'Overdue follow-ups',
-        overdueFollowUps.toString(),
+        overdueFollowUpItems.length.toString(),
         Icons.notification_important_outlined,
+        onTap: () =>
+            _showFollowUpDetails('Overdue follow-ups', overdueFollowUpItems),
       ),
       _ReportMetric(
         'Active contacts untouched · 30 days',
-        contactsNeedingAttention.toString(),
+        contactsNeedingAttention.length.toString(),
         Icons.person_search_outlined,
+        onTap: () => _showContactsNeedingAttention(
+          contactsNeedingAttention,
+          lastInteractionByContact,
+        ),
       ),
       _ReportMetric(
         'Active contacts',
         activeContacts.length.toString(),
         Icons.people_outline,
+        onTap: widget.onShowContacts,
       ),
       _ReportMetric(
         'Organizations',
@@ -652,15 +792,16 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
             .length
             .toString(),
         Icons.business_outlined,
+        onTap: widget.onShowOrganizations,
       ),
     ];
 
-    final dailyCounts = <DateTime, int>{};
+    final dailyInteractions = <DateTime, List<InteractionLog>>{};
     for (final interaction in widget.store.interactions) {
       final date = DateUtils.dateOnly(interaction.date.toLocal());
       if (!date.isBefore(today.subtract(const Duration(days: 13))) &&
           !date.isAfter(today)) {
-        dailyCounts.update(date, (count) => count + 1, ifAbsent: () => 1);
+        dailyInteractions.putIfAbsent(date, () => []).add(interaction);
       }
     }
     final days = List.generate(
@@ -668,7 +809,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
       (index) => today.subtract(Duration(days: 13 - index)),
     );
     final maxDailyCount = days
-        .map((day) => dailyCounts[day] ?? 0)
+        .map((day) => dailyInteractions[day]?.length ?? 0)
         .fold<int>(0, (largest, count) => count > largest ? count : largest);
 
     final typeCounts = {
@@ -694,6 +835,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
       ..sort((a, b) => b.value.compareTo(a.value));
 
     final theme = Theme.of(context);
+    final localizations = MaterialLocalizations.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -728,8 +870,13 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
                     for (final day in days)
                       _DailyBar(
                         date: day,
-                        count: dailyCounts[day] ?? 0,
+                        count: dailyInteractions[day]?.length ?? 0,
                         maxCount: maxDailyCount,
+                        onTap: () => _showInteractionDetails(
+                          dailyInteractions[day] ?? const [],
+                          title:
+                              'Interactions · ${localizations.formatMediumDate(day)}',
+                        ),
                       ),
                   ],
                 ),
@@ -745,6 +892,12 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
                 type: entry.key,
                 count: entry.value,
                 maxCount: maxTypeCount,
+                onTap: () => _showInteractionDetails(
+                  recentInteractions
+                      .where((interaction) => interaction.type == entry.key)
+                      .toList(),
+                  title: '${entry.key} interactions · last 30 days',
+                ),
               ),
             const Divider(height: 36),
             Text(
@@ -780,11 +933,12 @@ class _FilterChoice<T> {
 }
 
 class _ReportMetric {
-  const _ReportMetric(this.label, this.value, this.icon);
+  const _ReportMetric(this.label, this.value, this.icon, {this.onTap});
 
   final String label;
   final String value;
   final IconData icon;
+  final VoidCallback? onTap;
 }
 
 class _MetricGrid extends StatelessWidget {
@@ -828,31 +982,34 @@ class _MetricCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(metric.icon, color: colors.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    metric.label,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    metric.value,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: metric.onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(metric.icon, color: colors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      metric.label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                ],
+                    Text(
+                      metric.value,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -864,45 +1021,54 @@ class _DailyBar extends StatelessWidget {
     required this.date,
     required this.count,
     required this.maxCount,
+    required this.onTap,
   });
 
   final DateTime date;
   final int count;
   final int maxCount;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final height = count == 0 ? 2.0 : 84 * count / maxCount;
-    return SizedBox(
-      width: 48,
-      height: 132,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Text('$count', style: Theme.of(context).textTheme.labelSmall),
-          const SizedBox(height: 4),
-          SizedBox(
-            height: 88,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: Container(
-                width: 22,
-                height: height,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(5),
+    return Tooltip(
+      message: 'Show $count interactions',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 48,
+          height: 132,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text('$count', style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 88,
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    width: 22,
+                    height: height,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(5),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+              const SizedBox(height: 6),
+              Text(
+                '${date.month}/${date.day}',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            '${date.month}/${date.day}',
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -913,28 +1079,34 @@ class _InteractionTypeRow extends StatelessWidget {
     required this.type,
     required this.count,
     required this.maxCount,
+    required this.onTap,
   });
 
   final String type;
   final int count;
   final int maxCount;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(
-      children: [
-        SizedBox(width: 84, child: Text(type)),
-        Expanded(
-          child: LinearProgressIndicator(
-            value: maxCount == 0 ? 0 : count / maxCount,
-            minHeight: 9,
-            borderRadius: BorderRadius.circular(8),
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(8),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 4),
+      child: Row(
+        children: [
+          SizedBox(width: 84, child: Text(type)),
+          Expanded(
+            child: LinearProgressIndicator(
+              value: maxCount == 0 ? 0 : count / maxCount,
+              minHeight: 9,
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
-        ),
-        const SizedBox(width: 12),
-        SizedBox(width: 28, child: Text('$count', textAlign: TextAlign.end)),
-      ],
+          const SizedBox(width: 12),
+          SizedBox(width: 28, child: Text('$count', textAlign: TextAlign.end)),
+        ],
+      ),
     ),
   );
 }

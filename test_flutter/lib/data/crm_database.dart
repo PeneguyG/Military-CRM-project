@@ -12,7 +12,7 @@ import 'dart:isolate';
 import 'package:sqlite3/sqlite3.dart';
 import '../models/crm_models.dart';
 
-const crmSchemaVersion = 16;
+const crmSchemaVersion = 18;
 
 typedef DatabaseSnapshot = Map<String, List<Map<String, Object?>>>;
 
@@ -52,6 +52,8 @@ class CrmDatabase {
       _run('mapSettings', settings);
   Future<DatabaseSnapshot> load() => _run('load', {});
   Future<DatabaseSnapshot> loadSoundexSamples() => _run('soundexSamples', {});
+  Future<DatabaseSnapshot> deleteSoundexSamples() =>
+      _run('deleteSoundexSamples', {});
   Future<DatabaseSnapshot> saveOrganization(Organization item) =>
       _run('organization', item.toMap());
   Future<DatabaseSnapshot> saveContact(Contact item) =>
@@ -143,6 +145,8 @@ Future<DatabaseSnapshot> _execute(
           }
         case 'soundexSamples':
           _loadSoundexSamples(db);
+        case 'deleteSoundexSamples':
+          _deleteSoundexSamples(db);
         case 'organization':
           _saveOrganization(db, data);
         case 'contact':
@@ -488,7 +492,7 @@ void _migrate(Database db) {
         for (final row in db.select('SELECT * FROM $table')) {
           final sampleMaps = table == 'organizations'
               ? SoundexSamples.organizations.map((o) => o.toMap())
-              : SoundexSamples.contacts([0, 0, 0], 0).map((c) => c.toMap());
+              : SoundexSamples.contacts([0, 0, 0]).map((c) => c.toMap());
           final sample = sampleMaps
               .where(
                 (sample) =>
@@ -515,6 +519,16 @@ void _migrate(Database db) {
       }
       db.execute('CREATE TABLE map_settings(key TEXT PRIMARY KEY, value TEXT)');
       db.execute('INSERT INTO crm_app_migrations(version) VALUES(16)');
+      version = 16;
+    }
+    if (version < 17) {
+      _removeSoundexDemoTag(db);
+      db.execute('INSERT INTO crm_app_migrations(version) VALUES(17)');
+      version = 17;
+    }
+    if (version < 18) {
+      _createSampleRecordRegistry(db, registerExisting: true);
+      db.execute('INSERT INTO crm_app_migrations(version) VALUES(18)');
     }
     db.execute('COMMIT;');
   } catch (_) {
@@ -771,6 +785,65 @@ void _deleteProfileTag(Database db, int id) {
   db.execute('DELETE FROM profile_tag_definitions WHERE id=?', [id]);
 }
 
+void _removeSoundexDemoTag(Database db) {
+  final tags = db.select(
+    "SELECT id FROM profile_tag_definitions WHERE category='custom' AND value='soundex_demo'",
+  );
+  for (final tag in tags) {
+    _deleteProfileTag(db, tag['id'] as int);
+  }
+}
+
+void _createSampleRecordRegistry(Database db, {bool registerExisting = false}) {
+  db.execute('''
+    CREATE TABLE IF NOT EXISTS crm_sample_records(
+      kind TEXT NOT NULL,
+      record_id INTEGER NOT NULL,
+      PRIMARY KEY(kind, record_id)
+    )
+  ''');
+  if (!registerExisting) return;
+
+  final importsTable = db.select(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='crm_sample_imports'",
+  );
+  if (importsTable.isEmpty ||
+      db
+          .select("SELECT 1 FROM crm_sample_imports WHERE name='soundex_v1'")
+          .isEmpty) {
+    return;
+  }
+
+  final organizations = SoundexSamples.organizations;
+  final knownOrganizationIds = <int>{};
+  for (final row in db.select(
+    'SELECT id FROM organizations WHERE name IN (${List.filled(organizations.length, '?').join(',')})',
+    organizations.map((organization) => organization.name).toList(),
+  )) {
+    knownOrganizationIds.add(row['id'] as int);
+  }
+
+  for (final sample in SoundexSamples.contacts([0, 0, 0])) {
+    for (final row in db.select(
+      'SELECT id, organization_id FROM contacts WHERE first_name=? AND last_name=? AND email=?',
+      [sample.firstName, sample.lastName, sample.email],
+    )) {
+      final organizationId = row['organization_id'] as int?;
+      if (organizationId != null) knownOrganizationIds.add(organizationId);
+      db.execute(
+        "INSERT OR IGNORE INTO crm_sample_records(kind, record_id) VALUES('contact', ?)",
+        [row['id']],
+      );
+    }
+  }
+  for (final id in knownOrganizationIds) {
+    db.execute(
+      "INSERT OR IGNORE INTO crm_sample_records(kind, record_id) VALUES('organization', ?)",
+      [id],
+    );
+  }
+}
+
 bool _sameContactValue(String key, Object? first, Object? second) {
   if (key != 'photo_blob') return first == second;
   if (identical(first, second)) return true;
@@ -803,32 +876,21 @@ void _loadSoundexSamples(Database db) {
   db.execute(
     'CREATE TABLE IF NOT EXISTS crm_sample_imports (name TEXT PRIMARY KEY)',
   );
+  _createSampleRecordRegistry(db);
   if (db
       .select("SELECT name FROM crm_sample_imports WHERE name='soundex_v1'")
       .isNotEmpty)
     return;
-  final existingTag = db.select(
-    "SELECT id FROM profile_tag_definitions WHERE category='custom' AND value='soundex_demo'",
-  );
-  int tagId;
-  if (existingTag.isNotEmpty) {
-    tagId = existingTag.single['id'] as int;
-  } else {
-    _insert(db, 'profile_tag_definitions', {
-      'category': 'custom',
-      'value': 'soundex_demo',
-      'label': 'Fictional Soundex demo',
-      'color_value': 0xFF00796B,
-      'is_builtin': 0,
-    });
-    tagId = db.lastInsertRowId;
-  }
   final organizationIds = <int>[];
   final now = DateTime.now().toUtc();
   for (final organization in SoundexSamples.organizations) {
     _saveOrganization(db, organization.toMap());
     final id = db.lastInsertRowId;
     organizationIds.add(id);
+    db.execute(
+      "INSERT OR IGNORE INTO crm_sample_records(kind, record_id) VALUES('organization', ?)",
+      [id],
+    );
     final text = SoundexSamples.note(
       'Planning follow-up',
       'Schedule the next quarterly review and confirm venue availability.',
@@ -842,9 +904,13 @@ void _loadSoundexSamples(Database db) {
       'created_at': now.toIso8601String(),
     });
   }
-  for (final contact in SoundexSamples.contacts(organizationIds, tagId)) {
+  for (final contact in SoundexSamples.contacts(organizationIds)) {
     _saveContact(db, contact.toMap());
     final id = db.lastInsertRowId;
+    db.execute(
+      "INSERT OR IGNORE INTO crm_sample_records(kind, record_id) VALUES('contact', ?)",
+      [id],
+    );
     final text = SoundexSamples.note(
       'Introductory meeting',
       'Discussed logistics, family activities, and the next leadership workshop.',
@@ -883,4 +949,44 @@ void _loadSoundexSamples(Database db) {
     });
   }
   db.execute("INSERT INTO crm_sample_imports(name) VALUES ('soundex_v1')");
+}
+
+void _deleteSoundexSamples(Database db) {
+  db.execute(
+    'CREATE TABLE IF NOT EXISTS crm_sample_imports (name TEXT PRIMARY KEY)',
+  );
+  _createSampleRecordRegistry(db);
+  final organizationIds = db
+      .select(
+        "SELECT record_id FROM crm_sample_records WHERE kind='organization'",
+      )
+      .map((row) => row['record_id'] as int)
+      .toList();
+  final contactIds = db
+      .select("SELECT record_id FROM crm_sample_records WHERE kind='contact'")
+      .map((row) => row['record_id'] as int)
+      .toList();
+
+  _removeSoundexDemoTag(db);
+  db.execute('DROP TRIGGER IF EXISTS contacts_preserve');
+  db.execute('DROP TRIGGER IF EXISTS organizations_preserve');
+  try {
+    for (final id in contactIds) {
+      db.execute('DELETE FROM contacts WHERE id=?', [id]);
+    }
+    for (final id in organizationIds) {
+      db.execute('DELETE FROM organizations WHERE id=?', [id]);
+    }
+    db.execute('DELETE FROM crm_sample_records');
+    db.execute("DELETE FROM crm_sample_imports WHERE name='soundex_v1'");
+  } finally {
+    db.execute('''
+      CREATE TRIGGER IF NOT EXISTS contacts_preserve BEFORE DELETE ON contacts BEGIN
+        SELECT RAISE(ABORT, 'Contacts must be archived, never deleted');
+      END;
+      CREATE TRIGGER IF NOT EXISTS organizations_preserve BEFORE DELETE ON organizations BEGIN
+        SELECT RAISE(ABORT, 'Organizations must be archived, never deleted');
+      END;
+    ''');
+  }
 }

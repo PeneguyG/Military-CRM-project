@@ -2,7 +2,6 @@ import 'rich_text_widgets.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -33,18 +32,24 @@ const _contactPhoneLabels = [
 ];
 const _contactEmailLabels = ['Primary', 'Work', 'Personal', 'Home', 'Other'];
 
-int? _maxCharactersFor(String field) => switch (field) {
-  'first_name' ||
-  'last_name' ||
-  'title' ||
-  'spouse_name' ||
-  'name' ||
-  'industry' ||
-  'email' => 35,
-  _ => null,
-};
+int? _maxCharactersFor(String field, {bool organizationForm = false}) {
+  if (field == 'address' && !organizationForm) return 60;
+  return switch (field) {
+    'first_name' ||
+    'last_name' ||
+    'title' ||
+    'spouse_name' ||
+    'name' ||
+    'industry' ||
+    'email' => 35,
+    _ => null,
+  };
+}
 
-List<TextInputFormatter> _formattersFor(String field) {
+List<TextInputFormatter> _formattersFor(
+  String field, {
+  bool organizationForm = false,
+}) {
   if (field == 'phone') return const [UsPhoneNumberFormatter()];
   final formatters = <TextInputFormatter>[];
   if (_personNameKeys.contains(field)) {
@@ -52,7 +57,7 @@ List<TextInputFormatter> _formattersFor(String field) {
       FilteringTextInputFormatter.allow(RegExp(r"[\p{L} '\-]", unicode: true)),
     );
   }
-  final limit = _maxCharactersFor(field);
+  final limit = _maxCharactersFor(field, organizationForm: organizationForm);
   if (limit != null) formatters.add(LengthLimitingTextInputFormatter(limit));
   return formatters;
 }
@@ -673,12 +678,19 @@ class _RecordFormState extends State<RecordForm> {
         label: entry.value,
       );
     }
+    final maxCharacters = _maxCharactersFor(
+      entry.key,
+      organizationForm: widget.organizationForm,
+    );
+    final contactAddress = entry.key == 'address' && !widget.organizationForm;
     return TextFormField(
       controller: _controllers[entry.key],
       decoration: InputDecoration(
         labelText: entry.value,
         border: const OutlineInputBorder(),
       ),
+      maxLength: contactAddress ? 60 : null,
+      maxLengthEnforcement: MaxLengthEnforcement.enforced,
       textCapitalization: switch (entry.key) {
         'email' || 'phone' => TextCapitalization.none,
         'first_name' ||
@@ -701,10 +713,12 @@ class _RecordFormState extends State<RecordForm> {
           : entry.key == 'email'
           ? TextInputType.emailAddress
           : TextInputType.text,
-      inputFormatters: _formattersFor(entry.key),
+      inputFormatters: _formattersFor(
+        entry.key,
+        organizationForm: widget.organizationForm,
+      ),
       validator: (value) {
         final text = value?.trim() ?? '';
-        final maxCharacters = _maxCharactersFor(entry.key);
         if (maxCharacters != null && text.length > maxCharacters) {
           return 'Use $maxCharacters characters or fewer.';
         }

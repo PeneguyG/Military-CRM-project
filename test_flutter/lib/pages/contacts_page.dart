@@ -759,7 +759,7 @@ class _ContactDetailState extends State<ContactDetail> {
             'Last interaction',
             logs.isEmpty
                 ? 'No interactions recorded'
-                : '${localizations.formatMediumDate(logs.first.date.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(logs.first.date.toLocal()))} · ${logs.first.type}',
+                : '${localizations.formatMediumDate(logs.first.date.toLocal())} · ${TimeOfDay.fromDateTime(logs.first.date.toLocal()).format(context)} · ${logs.first.type}',
             icon: Icons.history,
           ),
           const SizedBox(height: 12),
@@ -954,7 +954,7 @@ class _ContactDetailState extends State<ContactDetail> {
                     RichTextView(note.text),
                     const SizedBox(height: 4),
                     Text(
-                      '${localizations.formatMediumDate(note.createdAt.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(note.createdAt.toLocal()))}',
+                      '${localizations.formatMediumDate(note.createdAt.toLocal())} · ${TimeOfDay.fromDateTime(note.createdAt.toLocal()).format(context)}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -980,7 +980,7 @@ class _ContactDetailState extends State<ContactDetail> {
               ),
               const SizedBox(width: 8),
               Text(
-                'Interaction history · newest first',
+                'Interaction history · Newest first',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
             ],
@@ -1007,7 +1007,7 @@ class _ContactDetailState extends State<ContactDetail> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            '${log.type} · ${localizations.formatMediumDate(log.date.toLocal())} ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(log.date.toLocal()))}',
+                            '${log.type} · ${localizations.formatMediumDate(log.date.toLocal())} ${TimeOfDay.fromDateTime(log.date.toLocal()).format(context)}',
                             style: Theme.of(context).textTheme.titleSmall,
                           ),
                         ),

@@ -454,7 +454,7 @@ class _OrganizationNotesCard extends StatelessWidget {
               RichTextView(notes[index].text),
               const SizedBox(height: 4),
               Text(
-                '${localizations.formatMediumDate(notes[index].createdAt.toLocal())} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(notes[index].createdAt.toLocal()))}',
+                '${localizations.formatMediumDate(notes[index].createdAt.toLocal())} · ${TimeOfDay.fromDateTime(notes[index].createdAt.toLocal()).format(context)}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],

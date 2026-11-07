@@ -154,8 +154,8 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
     with WidgetsBindingObserver {
   bool _isAuthenticated = false;
   ThemeMode? _override;
+  bool? _use24HourFormat;
   bool _themePreferenceLoaded = false;
-  late final Timer _timer;
   Future<CrmStore>? _opening;
   CrmStore? _ownedStore;
 
@@ -190,6 +190,11 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
     return File(p.join(directory.path, 'theme_preference.txt'));
   }
 
+  Future<File> _timeFormatPreferenceFile() async {
+    final themeFile = await _themePreferenceFile();
+    return File(p.join(themeFile.parent.path, 'time_format_preference.txt'));
+  }
+
   String? _windowsThemePreferencePath() {
     if (!Platform.isWindows) return null;
     final appData = Platform.environment['APPDATA'];
@@ -201,6 +206,13 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
       'MilitaryCRM',
       'theme_preference.txt',
     );
+  }
+
+  String? _windowsTimeFormatPreferencePath() {
+    final themePath = _windowsThemePreferencePath();
+    return themePath == null
+        ? null
+        : p.join(p.dirname(themePath), 'time_format_preference.txt');
   }
 
   Future<void> _loadThemePreference() async {
@@ -217,9 +229,23 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
     } catch (_) {
       // Start with automatic mode if local preferences cannot be read.
     }
+    bool? use24HourFormat;
+    try {
+      final file = await _timeFormatPreferenceFile();
+      if (await file.exists()) {
+        use24HourFormat = switch ((await file.readAsString()).trim()) {
+          '24' => true,
+          '12' => false,
+          _ => null,
+        };
+      }
+    } catch (_) {
+      // Follow the device time-format preference if the local setting is absent.
+    }
     if (!mounted) return;
     setState(() {
       _override = savedPreference;
+      _use24HourFormat = use24HourFormat;
       _themePreferenceLoaded = true;
     });
   }
@@ -227,6 +253,11 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
   void _setThemePreference(ThemeMode? preference) {
     setState(() => _override = preference);
     unawaited(_saveThemePreference(preference));
+  }
+
+  void _setTimeFormatPreference(bool? use24HourFormat) {
+    setState(() => _use24HourFormat = use24HourFormat);
+    unawaited(_saveTimeFormatPreference(use24HourFormat));
   }
 
   Future<void> _saveThemePreference(ThemeMode? preference) async {
@@ -242,6 +273,26 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
       await file.writeAsString(value, flush: true);
     } catch (_) {
       // Keep the current in-memory selection even if the preference file is unavailable.
+    }
+  }
+
+  Future<void> _saveTimeFormatPreference(bool? use24HourFormat) async {
+    try {
+      final value = use24HourFormat == null
+          ? 'device'
+          : use24HourFormat
+          ? '24'
+          : '12';
+      final windowsPath = _windowsTimeFormatPreferencePath();
+      if (windowsPath != null) {
+        Directory(p.dirname(windowsPath)).createSync(recursive: true);
+        File(windowsPath).writeAsStringSync(value, flush: true);
+        return;
+      }
+      final file = await _timeFormatPreferenceFile();
+      await file.writeAsString(value, flush: true);
+    } catch (_) {
+      // Keep the current in-memory selection if the local preference cannot be saved.
     }
   }
 
@@ -280,20 +331,15 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadThemePreference());
-    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (_override == null) setState(() {});
-    });
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _override == null)
-      setState(() {});
+  void didChangePlatformBrightness() {
+    if (_override == null && mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _timer.cancel();
     _ownedStore?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -301,10 +347,12 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
 
   @override
   Widget build(BuildContext context) {
-    final hour = DateTime.now().hour;
-    final mode =
-        _override ??
-        (hour >= 6 && hour < 18 ? ThemeMode.light : ThemeMode.dark);
+    final mode = _override ?? ThemeMode.system;
+    final isDarkMode =
+        mode == ThemeMode.dark ||
+        (mode == ThemeMode.system &&
+            WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+                Brightness.dark);
     return MaterialApp(
       title: 'Steel Wings CRM',
       localizationsDelegates: const [FlutterQuillLocalizations.delegate],
@@ -312,6 +360,16 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
       themeMode: mode,
       theme: _hopeTheme(Brightness.light),
       darkTheme: _hopeTheme(Brightness.dark),
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        final use24HourFormat = _use24HourFormat;
+        return MediaQuery(
+          data: use24HourFormat == null
+              ? media
+              : media.copyWith(alwaysUse24HourFormat: use24HourFormat),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: !_themePreferenceLoaded
           ? const _ThemePreferenceLoadingPage()
           : _isAuthenticated
@@ -328,7 +386,11 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text(
+<<<<<<< Updated upstream
                               'Could not open the protected database. Use the original Windows account or macOS Keychain and preserve the database and its protected key.',
+=======
+                              'Could not open the protected database. Check that the original platform key is available and that the database file is intact.',
+>>>>>>> Stashed changes
                             ),
                             const SizedBox(height: 12),
                             SelectableText('${snapshot.error}'),
@@ -361,13 +423,20 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                   );
                 return CrmHomePage(
                   store: snapshot.data!,
-                  isDarkMode: mode == ThemeMode.dark,
+                  isDarkMode: isDarkMode,
                   automaticTheme: _override == null,
                   onToggleTheme: () => _setThemePreference(
-                    mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark,
+                    isDarkMode ? ThemeMode.light : ThemeMode.dark,
                   ),
-                  onAutomaticThemeChanged: (enabled) =>
-                      _setThemePreference(enabled ? null : mode),
+                  onAutomaticThemeChanged: (enabled) => _setThemePreference(
+                    enabled
+                        ? null
+                        : isDarkMode
+                        ? ThemeMode.dark
+                        : ThemeMode.light,
+                  ),
+                  use24HourFormat: _use24HourFormat,
+                  onTimeFormatChanged: _setTimeFormatPreference,
                   onLock: _lockApp,
                 );
               },
@@ -449,6 +518,8 @@ class _SignInPageState extends State<_SignInPage> {
                       TextField(
                         controller: _passwordController,
                         obscureText: true,
+                        maxLength: 32,
+                        maxLengthEnforcement: MaxLengthEnforcement.enforced,
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => _submit(),
                         decoration: InputDecoration(
@@ -501,14 +572,18 @@ class CrmHomePage extends StatefulWidget {
     required this.onToggleTheme,
     required this.automaticTheme,
     required this.onAutomaticThemeChanged,
+    required this.use24HourFormat,
+    required this.onTimeFormatChanged,
     required this.onLock,
   });
 
   final bool isDarkMode;
   final bool automaticTheme;
+  final bool? use24HourFormat;
   final CrmStore store;
   final VoidCallback onToggleTheme;
   final ValueChanged<bool> onAutomaticThemeChanged;
+  final ValueChanged<bool?> onTimeFormatChanged;
   final VoidCallback onLock;
 
   @override
@@ -821,6 +896,8 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             store: _store,
                             onOpenContact: _openContact,
                             onOpenOrganization: _openOrganization,
+                            onShowContacts: () => _selectTab(1),
+                            onShowOrganizations: () => _selectTab(2),
                           ),
                           SettingsPage(
                             store: _store,
@@ -829,6 +906,8 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             onToggleTheme: widget.onToggleTheme,
                             onAutomaticThemeChanged:
                                 widget.onAutomaticThemeChanged,
+                            use24HourFormat: widget.use24HourFormat,
+                            onTimeFormatChanged: widget.onTimeFormatChanged,
                             onDatabaseLocation: _showDatabaseLocation,
                           ),
                         ],
