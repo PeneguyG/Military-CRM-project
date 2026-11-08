@@ -322,11 +322,15 @@ class InfoCard extends StatelessWidget {
     this.trailing,
     this.footer,
     this.footerSpacing = 8,
+    this.footerDivider = false,
+    this.footerDividerSpacing = 8,
   });
   final String title, text;
   final IconData? icon;
   final Widget? trailing, footer;
   final double footerSpacing;
+  final bool footerDivider;
+  final double footerDividerSpacing;
   @override
   Widget build(BuildContext context) => Card(
     child: Padding(
@@ -367,7 +371,24 @@ class InfoCard extends StatelessWidget {
               if (trailing != null) ...[const SizedBox(width: 12), trailing!],
             ],
           ),
-          if (footer != null) ...[SizedBox(height: footerSpacing), footer!],
+          if (footer != null) ...[
+            if (footerDivider) ...[
+              SizedBox(height: footerDividerSpacing),
+              Center(
+                child: FractionallySizedBox(
+                  widthFactor: 0.75,
+                  child: Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: Theme.of(context).dividerColor,
+                  ),
+                ),
+              ),
+              SizedBox(height: footerDividerSpacing),
+            ] else
+              SizedBox(height: footerSpacing),
+            footer!,
+          ],
         ],
       ),
     ),

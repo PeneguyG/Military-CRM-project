@@ -990,6 +990,7 @@ class _ContactDetailState extends State<ContactDetail> {
                 .join('\n'),
             icon: Icons.phone_outlined,
             footerSpacing: 4,
+            footerDivider: true,
             footer: phoneNumbers.isEmpty
                 ? null
                 : Row(
@@ -1043,6 +1044,7 @@ class _ContactDetailState extends State<ContactDetail> {
                 .join('\n'),
             icon: Icons.email_outlined,
             footerSpacing: 4,
+            footerDivider: true,
             footer: emailAddresses.isEmpty
                 ? null
                 : Row(
