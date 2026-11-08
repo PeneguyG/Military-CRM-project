@@ -1,0 +1,36 @@
+STEEL WINGS CRM — INSTALL ON A MAC
+
+You can install from a USB drive or a downloaded copy. No internet or technical
+tools are needed during installation. Requires macOS 12 or later.
+
+1. Save your work and quit Steel Wings CRM if it is open.
+2. Double-click the file named Steel-Wings-CRM followed by a version and .pkg.
+3. Click Continue, then Install. If asked, approve with your Mac login password
+   or Touch ID. This is not your CRM password.
+4. When installation finishes, click Close.
+5. Open Finder (the smiling face in your Dock), click Applications, and
+   double-click Steel Wings CRM.
+6. Sign in with the CRM password supplied by your administrator. If you already
+   changed your password, use that password. You can change it in Settings.
+
+KEEP IT IN YOUR DOCK
+While the CRM is open, right-click its Dock icon and choose Options, then
+Keep in Dock. Next time, click that icon to open it.
+
+OFFLINE USE
+Your local records work without internet. Online map tiles and external services
+need a connection. The installer includes the app and its required libraries.
+
+UPDATING
+Back up important records and close the CRM before running a newer installer.
+Your records and saved password are stored separately from the app. Keep a copy
+of the installer if you need it again. Do not delete your database or Keychain
+entries to troubleshoot installation.
+
+IF SOMETHING GOES WRONG
+If your Mac blocks the installer or says its developer cannot be verified, ask
+the person who supplied it for an Apple-signed and notarized copy. Do not turn
+off your Mac's security settings.
+If installation asks for an administrator account you do not have, contact the
+person who manages your Mac. If sign-in fails, ask your CRM administrator for
+the correct password. Reinstalling does not reset a saved password.

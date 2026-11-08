@@ -33,7 +33,9 @@ case "$action" in
     found=0
     while IFS= read -r -d '' binary; do
       if /usr/bin/file -b "$binary" | /usr/bin/grep -q 'Mach-O'; then
-        /usr/bin/lipo "$binary" -verify_arch arm64 x86_64
+        arches="$(/usr/bin/lipo -archs "$binary")"
+        case " $arches " in *" arm64 "*) ;; *) echo "Missing arm64: $binary" >&2; exit 1 ;; esac
+        case " $arches " in *" x86_64 "*) ;; *) echo "Missing x86_64: $binary" >&2; exit 1 ;; esac
         found=1
       fi
     done < <(find "$app" -type f -print0)

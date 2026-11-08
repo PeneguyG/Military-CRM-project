@@ -1,5 +1,27 @@
 # Steel Wings CRM
 
+## Mac installer (no Terminal needed for users)
+
+Build the self-contained installer on a Mac with `bash scripts/package-macos.sh`.
+The result is `dist/macos/Steel-Wings-CRM-<version>.pkg`, with a plain-language
+`START-HERE.txt` guide. Give users both files. They can double-click the package,
+follow the installer wizard, then open Steel Wings CRM from Applications.
+Installation requires macOS 12+, administrator approval, and no internet access.
+The CRM's online maps and external services still require a connection.
+
+The package installs only the app, without installer scripts or bundled user
+data. Close the CRM and back up records before updating. Existing records and
+Keychain entries remain in their separate locations.
+
+For packaging an already-built release, use
+`bash scripts/package-macos.sh --skip-build`. Public distribution requires a
+Developer ID Application-signed app and a Developer ID Installer-signed package,
+followed by Apple notarization and stapling. Set `INSTALLER_SIGN_IDENTITY` to
+the installer certificate name to sign during packaging. An unsigned local
+package is for testing; it may be blocked on other Macs. The build machine needs
+the Flutter SDK, Xcode, and cached or downloadable dependencies, even though
+the finished installer works offline.
+
 Steel Wings CRM is the Windows and macOS desktop application in `test_flutter`.
 
 ## Desktop build and run

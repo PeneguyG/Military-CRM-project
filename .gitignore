@@ -1,4 +1,5 @@
 __pycache__/
+dist/
 *.py[cod]
 *.sqlite3
 *.sqlite3-wal
