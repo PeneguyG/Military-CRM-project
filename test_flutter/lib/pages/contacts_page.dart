@@ -7,6 +7,7 @@ import '../models/crm_models.dart';
 import '../phone_number.dart';
 import 'crm_widgets.dart';
 import 'record_browser.dart';
+import 'responsive_dialog.dart';
 
 const _contactPrefixes = <String>[
   '',
@@ -165,6 +166,7 @@ Future<void> editContact(
     builder: (_) => RecordForm(
       title: contact == null ? 'Add contact' : 'Edit contact',
       values: original.toMap(),
+      confirmDiscardOnExit: contact == null,
       onSave: (values) {
         // Status is the contact-facing control for archiving. Keep the legacy
         // storage flag in sync so archived contacts move into Archive.
@@ -783,6 +785,7 @@ class _ContactDetailState extends State<ContactDetail> {
                 )
                 .join('\n'),
             icon: Icons.phone_outlined,
+            footerSpacing: 4,
             footer: phoneNumbers.isEmpty
                 ? null
                 : Row(
@@ -835,6 +838,7 @@ class _ContactDetailState extends State<ContactDetail> {
                 .map((email) => '${email.label}: ${email.address}')
                 .join('\n'),
             icon: Icons.email_outlined,
+            footerSpacing: 4,
             footer: emailAddresses.isEmpty
                 ? null
                 : Row(
@@ -897,14 +901,6 @@ class _ContactDetailState extends State<ContactDetail> {
               c.childrenInfo,
               icon: Icons.child_care_outlined,
             ),
-          if (c.notes.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              'Profile notes',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            RichTextView(c.notes),
-          ],
           if (c.talkingPoints.isNotEmpty) ...[
             const SizedBox(height: 16),
             Text(
@@ -944,13 +940,15 @@ class _ContactDetailState extends State<ContactDetail> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  if (contactNotes.isEmpty)
+                  if (c.notes.trim().isEmpty && contactNotes.isEmpty)
                     const Padding(
                       padding: EdgeInsets.only(top: 12),
                       child: Text('No notes yet.'),
                     ),
+                  if (c.notes.trim().isNotEmpty) RichTextView(c.notes),
                   for (final note in contactNotes) ...[
-                    if (contactNotes.first != note) const Divider(height: 24),
+                    if (c.notes.trim().isNotEmpty || contactNotes.first != note)
+                      const Divider(height: 24),
                     RichTextView(note.text),
                     const SizedBox(height: 4),
                     Text(
@@ -1040,11 +1038,43 @@ class _ContactDetailState extends State<ContactDetail> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Follow-up: ${localizations.formatMediumDate(log.followUpDate!.toLocal())} · ${formatFollowUpTime(context, log.followUpTime)}',
+                            const Divider(height: 24),
+                            Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: 'Follow-up:',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                  ),
+                                  TextSpan(
+                                    text:
+                                        ' ${localizations.formatMediumDate(log.followUpDate!.toLocal())} · ${formatFollowUpTime(context, log.followUpTime)}',
+                                  ),
+                                ],
+                              ),
                             ),
                             if (log.followUpReason.trim().isNotEmpty)
-                              Text('Reason: ${log.followUpReason.trim()}'),
+                              Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: 'Reason:',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                    TextSpan(
+                                      text: ' ${log.followUpReason.trim()}',
+                                    ),
+                                  ],
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -1077,10 +1107,12 @@ class _AddContactNoteDialogState extends State<_AddContactNoteDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    constraints: responsiveDialogConstraints(context),
+    insetPadding: responsiveDialogInsetPadding(context),
     title: const Text('Add contact note'),
     scrollable: true,
     content: SizedBox(
-      width: 600,
+      width: responsiveDialogContentWidth(context),
       child: Form(
         key: _key,
         child: RichTextEditor(

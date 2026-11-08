@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
 import 'crm_widgets.dart';
+import 'responsive_dialog.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
@@ -315,9 +316,11 @@ class _CreateTagDialogState extends State<_CreateTagDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    constraints: responsiveDialogConstraints(context),
+    insetPadding: responsiveDialogInsetPadding(context),
     title: const Text('Create profile tag'),
     content: SizedBox(
-      width: 420,
+      width: responsiveDialogContentWidth(context, maxWidth: 600),
       child: Form(
         key: _key,
         child: Column(
@@ -420,6 +423,8 @@ class _SoundexSamplesCardState extends State<_SoundexSamplesCard> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        constraints: responsiveDialogConstraints(context),
+        insetPadding: responsiveDialogInsetPadding(context),
         title: const Text('Delete sample data?'),
         content: const Text(
           'This removes the demo organizations and contacts, along with their notes, interactions, and attachments. Any other contacts assigned to a demo organization will become unassigned. Your other records will remain.',

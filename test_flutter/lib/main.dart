@@ -15,6 +15,7 @@ import 'pages/home_page.dart';
 import 'pages/archive_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/search_reporting_page.dart';
+import 'pages/responsive_dialog.dart';
 import 'models/crm_models.dart';
 
 const _hopePrimary = Color(0xFF3A57E8);
@@ -527,6 +528,7 @@ class _SignInPageState extends State<_SignInPage> {
                         onSubmitted: (_) => _submit(),
                         decoration: InputDecoration(
                           labelText: 'Password',
+                          counterText: '',
                           prefixIcon: const Icon(Icons.lock_outline),
                           errorText: _error,
                           border: const OutlineInputBorder(),
@@ -688,6 +690,8 @@ class _CrmHomePageState extends State<CrmHomePage> {
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
+        constraints: responsiveDialogConstraints(context),
+        insetPadding: responsiveDialogInsetPadding(context),
         title: const Text('Database location'),
         content: SelectableText(
           _store.databasePath ?? 'No persistent database is in use.',

@@ -6,6 +6,7 @@ import '../models/crm_models.dart';
 import '../utils/offline_map_helper.dart';
 import '../utils/offline_map_boundaries.dart';
 import 'crm_widgets.dart';
+import 'responsive_dialog.dart';
 
 class MapRecord {
   const MapRecord.organization(Organization value)
@@ -162,10 +163,12 @@ class _OfflineMapPageState extends State<OfflineMapPage> {
     final key = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
+        constraints: responsiveDialogConstraints(context),
+        insetPadding: responsiveDialogInsetPadding(context),
         title: const Text('Choose a record to place'),
         content: SizedBox(
-          width: 480,
-          height: 360,
+          width: responsiveDialogContentWidth(context),
+          height: responsiveDialogContentHeight(context),
           child: ListView(
             children: [
               for (final r in records)
@@ -891,10 +894,12 @@ class _LocationDialogState extends State<_LocationDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    constraints: responsiveDialogConstraints(context),
+    insetPadding: responsiveDialogInsetPadding(context),
     title: const Text('Set my location'),
     scrollable: true,
     content: SizedBox(
-      width: 450,
+      width: responsiveDialogContentWidth(context, maxWidth: 900),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

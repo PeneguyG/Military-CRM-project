@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
 import 'crm_widgets.dart';
+import 'responsive_dialog.dart';
 
 enum _SearchScope { all, contacts, organizations }
 
@@ -49,29 +50,32 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
     String emptyMessage,
     List<Widget> items,
   ) {
-    final size = MediaQuery.sizeOf(context);
     showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: items.isEmpty
-            ? Text(emptyMessage)
-            : SizedBox(
-                width: math.min(size.width * 0.8, 560),
-                height: math.min(size.height * 0.62, 480),
-                child: ListView.separated(
-                  itemCount: items.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (_, index) => items[index],
+      builder: (dialogContext) {
+        return AlertDialog(
+          constraints: responsiveDialogConstraints(dialogContext),
+          insetPadding: responsiveDialogInsetPadding(dialogContext),
+          title: Text(title),
+          content: items.isEmpty
+              ? Text(emptyMessage)
+              : SizedBox(
+                  width: responsiveDialogContentWidth(dialogContext),
+                  height: responsiveDialogContentHeight(dialogContext),
+                  child: ListView.separated(
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (_, index) => items[index],
+                  ),
                 ),
-              ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 

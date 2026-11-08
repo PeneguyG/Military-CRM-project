@@ -7,6 +7,7 @@ import '../models/crm_models.dart';
 import '../phone_number.dart';
 import 'crm_widgets.dart';
 import 'record_browser.dart';
+import 'responsive_dialog.dart';
 
 Future<void> editOrganization(
   BuildContext context,
@@ -20,6 +21,7 @@ Future<void> editOrganization(
     builder: (_) => RecordForm(
       title: organization == null ? 'Add organization' : 'Edit organization',
       values: original.toMap(),
+      confirmDiscardOnExit: organization == null,
       onSave: (values) => store.saveOrganization(Organization.fromMap(values)),
       organizationForm: true,
       fields: const {
@@ -486,10 +488,12 @@ class _AddOrganizationNoteDialogState
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    constraints: responsiveDialogConstraints(context),
+    insetPadding: responsiveDialogInsetPadding(context),
     title: const Text('Add organization note'),
     scrollable: true,
     content: SizedBox(
-      width: 600,
+      width: responsiveDialogContentWidth(context),
       child: Form(
         key: _key,
         child: RichTextEditor(

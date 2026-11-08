@@ -1,7 +1,6 @@
 import 'rich_text_widgets.dart';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/crm_models.dart';
 import '../phone_number.dart';
+import 'responsive_dialog.dart';
 
 String label(String value) => value[0].toUpperCase() + value.substring(1);
 
@@ -320,10 +320,12 @@ class InfoCard extends StatelessWidget {
     this.icon,
     this.trailing,
     this.footer,
+    this.footerSpacing = 8,
   });
   final String title, text;
   final IconData? icon;
   final Widget? trailing, footer;
+  final double footerSpacing;
   @override
   Widget build(BuildContext context) => Card(
     child: Padding(
@@ -364,7 +366,7 @@ class InfoCard extends StatelessWidget {
               if (trailing != null) ...[const SizedBox(width: 12), trailing!],
             ],
           ),
-          if (footer != null) ...[const SizedBox(height: 8), footer!],
+          if (footer != null) ...[SizedBox(height: footerSpacing), footer!],
         ],
       ),
     ),
@@ -516,6 +518,7 @@ class RecordForm extends StatefulWidget {
     this.organizationId,
     this.onSave,
     this.organizationForm = false,
+    this.confirmDiscardOnExit = false,
   });
   final String title;
   final Map<String, Object?> values;
@@ -526,6 +529,7 @@ class RecordForm extends StatefulWidget {
   final ContactStatus? contactStatus;
   final int? organizationId;
   final bool organizationForm;
+  final bool confirmDiscardOnExit;
   final Future<void> Function(Map<String, Object?>)? onSave;
   @override
   State<RecordForm> createState() => _RecordFormState();
@@ -533,6 +537,9 @@ class RecordForm extends StatefulWidget {
 
 class _RecordFormState extends State<RecordForm> {
   bool _saving = false;
+  bool _hasUnsavedChanges = false;
+  bool _exitPromptOpen = false;
+  bool _allowPop = false;
   String? _error;
   final _key = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers = {
@@ -585,6 +592,72 @@ class _RecordFormState extends State<RecordForm> {
   late String? _photoPath = widget.organizationForm
       ? null
       : widget.values['photo_path'] as String?;
+
+  @override
+  void initState() {
+    super.initState();
+    for (final controller in _controllers.values) {
+      controller.addListener(_markUnsavedChanges);
+    }
+    for (final phone in _additionalPhones) {
+      phone.controller.addListener(_markUnsavedChanges);
+    }
+    for (final email in _additionalEmails) {
+      email.controller.addListener(_markUnsavedChanges);
+    }
+  }
+
+  void _markUnsavedChanges() {
+    if (!widget.confirmDiscardOnExit || _hasUnsavedChanges) return;
+    setState(() => _hasUnsavedChanges = true);
+  }
+
+  Future<void> _requestClose() async {
+    if (_saving || _exitPromptOpen) return;
+    if (!widget.confirmDiscardOnExit || !_hasUnsavedChanges) {
+      Navigator.pop(context);
+      return;
+    }
+
+    _exitPromptOpen = true;
+    final itemType = widget.organizationForm ? 'organization' : 'record';
+    final shouldClose = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        constraints: responsiveDialogConstraints(dialogContext),
+        insetPadding: responsiveDialogInsetPadding(dialogContext),
+        title: const Text('Exit without saving?'),
+        content: Text(
+          'Are you sure you want to exit creating this $itemType? Your '
+          'progress will not be saved. If you come back, you will need to '
+          'start over.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Close adding window'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    _exitPromptOpen = false;
+    if (shouldClose == true) _popForm();
+  }
+
+  void _popForm([Map<String, Object?>? result]) {
+    if (!mounted) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.pop(context, result);
+    });
+  }
+
   @override
   void dispose() {
     for (final c in _controllers.values) {
@@ -628,7 +701,10 @@ class _RecordFormState extends State<RecordForm> {
     if (entry.key == 'children_json') {
       return ChildrenEditor(
         initialChildren: _children,
-        onChanged: (children) => _children = children,
+        onChanged: (children) {
+          _children = children;
+          _markUnsavedChanges();
+        },
       );
     }
     if (entry.key == 'photo_blob' || entry.key == 'logo_blob') {
@@ -666,9 +742,12 @@ class _RecordFormState extends State<RecordForm> {
               label: _dropdownOptionLabel(entry.key, option),
             ),
         ],
-        onSelected: (value) => setState(() {
-          _dropdownValues[entry.key] = value ?? '';
-        }),
+        onSelected: (value) {
+          _markUnsavedChanges();
+          setState(() {
+            _dropdownValues[entry.key] = value ?? '';
+          });
+        },
       );
     }
 
@@ -775,9 +854,12 @@ class _RecordFormState extends State<RecordForm> {
                   for (final label in labels)
                     DropdownMenuEntry(value: label, label: label),
                 ],
-                onSelected: (value) => setState(
-                  () => _dropdownValues['phone_label'] = value ?? 'Mobile',
-                ),
+                onSelected: (value) {
+                  _markUnsavedChanges();
+                  setState(
+                    () => _dropdownValues['phone_label'] = value ?? 'Mobile',
+                  );
+                },
               ),
             ),
             const SizedBox(width: 12),
@@ -812,9 +894,11 @@ class _RecordFormState extends State<RecordForm> {
             ),
           ),
           TextButton.icon(
-            onPressed: () => setState(
-              () => _additionalPhones.add(_PhoneDraft('Mobile', '')),
-            ),
+            onPressed: () => setState(() {
+              final phone = _PhoneDraft('Mobile', '');
+              phone.controller.addListener(_markUnsavedChanges);
+              _additionalPhones.add(phone);
+            }),
             icon: const Icon(Icons.add),
             label: const Text('Add number'),
           ),
@@ -839,9 +923,12 @@ class _RecordFormState extends State<RecordForm> {
                   for (final label in _contactPhoneLabels)
                     DropdownMenuEntry(value: label, label: label),
                 ],
-                onSelected: (value) => setState(
-                  () => _additionalPhones[index].label = value ?? 'Other',
-                ),
+                onSelected: (value) {
+                  _markUnsavedChanges();
+                  setState(
+                    () => _additionalPhones[index].label = value ?? 'Other',
+                  );
+                },
               ),
             ),
             const SizedBox(width: 8),
@@ -894,9 +981,12 @@ class _RecordFormState extends State<RecordForm> {
                   for (final label in labels)
                     DropdownMenuEntry(value: label, label: label),
                 ],
-                onSelected: (value) => setState(
-                  () => _dropdownValues['email_label'] = value ?? 'Primary',
-                ),
+                onSelected: (value) {
+                  _markUnsavedChanges();
+                  setState(
+                    () => _dropdownValues['email_label'] = value ?? 'Primary',
+                  );
+                },
               ),
             ),
             const SizedBox(width: 12),
@@ -932,8 +1022,11 @@ class _RecordFormState extends State<RecordForm> {
             ),
           ),
           TextButton.icon(
-            onPressed: () =>
-                setState(() => _additionalEmails.add(_EmailDraft('Work', ''))),
+            onPressed: () => setState(() {
+              final email = _EmailDraft('Work', '');
+              email.controller.addListener(_markUnsavedChanges);
+              _additionalEmails.add(email);
+            }),
             icon: const Icon(Icons.add),
             label: const Text('Add address'),
           ),
@@ -958,9 +1051,12 @@ class _RecordFormState extends State<RecordForm> {
                   for (final label in _contactEmailLabels)
                     DropdownMenuEntry(value: label, label: label),
                 ],
-                onSelected: (value) => setState(
-                  () => _additionalEmails[index].label = value ?? 'Other',
-                ),
+                onSelected: (value) {
+                  _markUnsavedChanges();
+                  setState(
+                    () => _additionalEmails[index].label = value ?? 'Other',
+                  );
+                },
               ),
             ),
             const SizedBox(width: 8),
@@ -1041,13 +1137,16 @@ class _RecordFormState extends State<RecordForm> {
                     selected: _selectedCustomTagIds.contains(tag.id),
                     selectedColor: Color(tag.colorValue).withValues(alpha: 0.2),
                     checkmarkColor: Color(tag.colorValue),
-                    onSelected: (selected) => setState(() {
-                      if (selected) {
-                        _selectedCustomTagIds.add(tag.id!);
-                      } else {
-                        _selectedCustomTagIds.remove(tag.id);
-                      }
-                    }),
+                    onSelected: (selected) {
+                      _markUnsavedChanges();
+                      setState(() {
+                        if (selected) {
+                          _selectedCustomTagIds.add(tag.id!);
+                        } else {
+                          _selectedCustomTagIds.remove(tag.id);
+                        }
+                      });
+                    },
                   ),
               ],
             ),
@@ -1131,10 +1230,13 @@ class _RecordFormState extends State<RecordForm> {
                   TextButton.icon(
                     onPressed: _saving
                         ? null
-                        : () => setState(() {
-                            _photoBytes = null;
-                            _photoPath = null;
-                          }),
+                        : () {
+                            _markUnsavedChanges();
+                            setState(() {
+                              _photoBytes = null;
+                              _photoPath = null;
+                            });
+                          },
                     icon: const Icon(Icons.delete_outline),
                     label: const Text('Remove'),
                   ),
@@ -1163,6 +1265,7 @@ class _RecordFormState extends State<RecordForm> {
         setState(() => _error = 'The selected image is empty.');
         return;
       }
+      _markUnsavedChanges();
       setState(() {
         _photoBytes = bytes;
         _photoPath = null;
@@ -1179,11 +1282,18 @@ class _RecordFormState extends State<RecordForm> {
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !_saving,
+    canPop:
+        _allowPop ||
+        (!_saving && (!widget.confirmDiscardOnExit || !_hasUnsavedChanges)),
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop && !_saving) _requestClose();
+    },
     child: AlertDialog(
+      constraints: responsiveDialogConstraints(context),
+      insetPadding: responsiveDialogInsetPadding(context),
       title: Text(widget.title),
       content: SizedBox(
-        width: 560,
+        width: responsiveDialogContentWidth(context),
         child: SingleChildScrollView(
           child: Form(
             key: _key,
@@ -1230,9 +1340,12 @@ class _RecordFormState extends State<RecordForm> {
                                 '${o.name}${o.isArchived ? ' (Archived)' : ''}',
                           ),
                     ],
-                    onSelected: (value) => setState(
-                      () => _organizationId = value == -1 ? null : value,
-                    ),
+                    onSelected: (value) {
+                      _markUnsavedChanges();
+                      setState(
+                        () => _organizationId = value == -1 ? null : value,
+                      );
+                    },
                   ),
                   AnchoredDropdown<ContactStatus>(
                     label: 'Status',
@@ -1241,9 +1354,10 @@ class _RecordFormState extends State<RecordForm> {
                       for (final s in ContactStatus.values)
                         DropdownMenuEntry(value: s, label: label(s.name)),
                     ],
-                    onSelected: (status) => setState(
-                      () => _status = status ?? ContactStatus.active,
-                    ),
+                    onSelected: (status) {
+                      _markUnsavedChanges();
+                      setState(() => _status = status ?? ContactStatus.active);
+                    },
                   ),
                 ],
               ],
@@ -1253,7 +1367,7 @@ class _RecordFormState extends State<RecordForm> {
       ),
       actions: [
         TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
+          onPressed: _saving ? null : _requestClose,
           child: const Text('Cancel'),
         ),
         FilledButton(
@@ -1314,8 +1428,7 @@ class _RecordFormState extends State<RecordForm> {
                   try {
                     await widget.onSave?.call(result);
                     if (context.mounted) {
-                      setState(() => _saving = false);
-                      Navigator.pop(context, result);
+                      _popForm(result);
                     }
                   } catch (_) {
                     if (mounted)
@@ -1507,6 +1620,9 @@ class InteractionForm extends StatefulWidget {
 class _InteractionFormState extends State<InteractionForm> {
   bool _saving = false;
   bool _showFollowUp = false;
+  bool _hasUnsavedChanges = false;
+  bool _exitPromptOpen = false;
+  bool _allowPop = false;
   String? _error;
   final _key = GlobalKey<FormState>();
   final _summary = TextEditingController();
@@ -1517,6 +1633,62 @@ class _InteractionFormState extends State<InteractionForm> {
   late String _type = widget.initialType;
   DateTime? _followUp;
   TimeOfDay? _followUpTime;
+
+  @override
+  void initState() {
+    super.initState();
+    _summary.addListener(_markUnsavedChanges);
+    _followUpReason.addListener(_markUnsavedChanges);
+  }
+
+  void _markUnsavedChanges() {
+    if (_hasUnsavedChanges) return;
+    setState(() => _hasUnsavedChanges = true);
+  }
+
+  Future<void> _requestClose() async {
+    if (_saving || _exitPromptOpen) return;
+    if (!_hasUnsavedChanges) {
+      Navigator.pop(context);
+      return;
+    }
+
+    _exitPromptOpen = true;
+    final shouldClose = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        constraints: responsiveDialogConstraints(dialogContext),
+        insetPadding: responsiveDialogInsetPadding(dialogContext),
+        title: const Text('Exit without saving?'),
+        content: const Text(
+          'Are you sure you want to close the log window? Your progress will '
+          'not be saved if you come back.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Close log window'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    _exitPromptOpen = false;
+    if (shouldClose == true) _popForm();
+  }
+
+  void _popForm([Map<String, Object?>? result]) {
+    if (!mounted) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.pop(context, result);
+    });
+  }
 
   DateTime? get _followUpAt {
     final date = _followUp;
@@ -1569,6 +1741,7 @@ class _InteractionFormState extends State<InteractionForm> {
       setState(() => _error = 'Choose a follow-up date that has not passed.');
       return;
     }
+    _markUnsavedChanges();
     setState(() {
       _followUp = selectedDate;
       final now = DateTime.now();
@@ -1641,6 +1814,7 @@ class _InteractionFormState extends State<InteractionForm> {
         return;
       }
     }
+    _markUnsavedChanges();
     setState(() {
       _followUpTime = time;
       _followUpTimeText.text = time.format(context);
@@ -1649,6 +1823,7 @@ class _InteractionFormState extends State<InteractionForm> {
   }
 
   void _toggleFollowUp() {
+    _markUnsavedChanges();
     setState(() {
       _showFollowUp = !_showFollowUp;
       if (_showFollowUp) {
@@ -1676,6 +1851,8 @@ class _InteractionFormState extends State<InteractionForm> {
         }
       }
       if (!mounted) return;
+      if (picked.isEmpty) return;
+      _markUnsavedChanges();
       setState(() {
         _attachments.addAll(picked);
         _error = null;
@@ -1690,17 +1867,17 @@ class _InteractionFormState extends State<InteractionForm> {
   @override
   Widget build(BuildContext context) {
     final viewport = MediaQuery.sizeOf(context);
-    final dialogWidth = math
-        .max(0.0, math.min(960.0, viewport.width - 32))
-        .toDouble();
-    final dialogHeight = math
-        .max(0.0, math.min(900.0, viewport.height - 32))
-        .toDouble();
+    final dialogWidth = viewport.width * 0.92;
+    final dialogHeight = viewport.height * 0.92;
 
     return PopScope(
-      canPop: !_saving,
+      canPop: _allowPop || (!_saving && !_hasUnsavedChanges),
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && !_saving) _requestClose();
+      },
       child: Dialog(
-        insetPadding: const EdgeInsets.all(16),
+        insetPadding: responsiveDialogInsetPadding(context),
+        constraints: responsiveDialogConstraints(context),
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: dialogWidth,
@@ -1752,8 +1929,10 @@ class _InteractionFormState extends State<InteractionForm> {
                               for (final type in InteractionLog.types)
                                 DropdownMenuEntry(value: type, label: type),
                             ],
-                            onSelected: (value) =>
-                                setState(() => _type = value ?? _type),
+                            onSelected: (value) {
+                              _markUnsavedChanges();
+                              setState(() => _type = value ?? _type);
+                            },
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
@@ -1818,10 +1997,14 @@ class _InteractionFormState extends State<InteractionForm> {
                                       tooltip: 'Remove attachment',
                                       onPressed: _saving
                                           ? null
-                                          : () => setState(
-                                              () =>
-                                                  _attachments.removeAt(index),
-                                            ),
+                                          : () {
+                                              _markUnsavedChanges();
+                                              setState(
+                                                () => _attachments.removeAt(
+                                                  index,
+                                                ),
+                                              );
+                                            },
                                       icon: const Icon(Icons.close),
                                     ),
                                   ),
@@ -1946,9 +2129,7 @@ class _InteractionFormState extends State<InteractionForm> {
                     spacing: 8,
                     children: [
                       TextButton(
-                        onPressed: _saving
-                            ? null
-                            : () => Navigator.pop(context),
+                        onPressed: _saving ? null : _requestClose,
                         child: const Text('Cancel'),
                       ),
                       FilledButton(
@@ -1978,8 +2159,7 @@ class _InteractionFormState extends State<InteractionForm> {
                                 try {
                                   await widget.onSave?.call(result);
                                   if (context.mounted) {
-                                    setState(() => _saving = false);
-                                    Navigator.pop(context, result);
+                                    _popForm(result);
                                   }
                                 } catch (_) {
                                   if (mounted) {
