@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
 import '../phone_number.dart';
-import 'contacts_page.dart' show editContact;
+import 'contacts_page.dart' show editContact, showArchivedContactProfile;
 import 'crm_widgets.dart'
     show ContactPhoto, RecordStatusIndicator, runDatabaseAction;
 import 'organizations_page.dart' show editOrganization;
@@ -58,6 +58,8 @@ class ArchivePage extends StatelessWidget {
                 organizationName: store
                     .organization(contact.organizationId)
                     ?.name,
+                onView: () =>
+                    showArchivedContactProfile(context, store, contact),
                 onEdit: () => editContact(context, store, contact),
                 onMarkActive: contact.id == null
                     ? null
@@ -116,12 +118,14 @@ class _ArchivedContactCard extends StatelessWidget {
   const _ArchivedContactCard({
     required this.contact,
     required this.organizationName,
+    required this.onView,
     required this.onEdit,
     required this.onMarkActive,
   });
 
   final Contact contact;
   final String? organizationName;
+  final VoidCallback onView;
   final VoidCallback onEdit;
   final VoidCallback? onMarkActive;
 
@@ -156,7 +160,7 @@ class _ArchivedContactCard extends StatelessWidget {
               ],
             ),
             subtitle: Text(details.isEmpty ? 'Archived contact' : details),
-            onTap: onEdit,
+            onTap: onView,
           ),
           Align(
             alignment: Alignment.centerRight,

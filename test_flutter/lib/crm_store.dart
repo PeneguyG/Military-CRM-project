@@ -280,7 +280,8 @@ class CrmStore extends ChangeNotifier {
       return;
     }
     if (contact(item.contactId) == null ||
-        !InteractionLog.types.contains(item.type)) {
+        (!InteractionLog.types.contains(item.type) &&
+            !(item.isFollowUpOnly && item.type == 'Other'))) {
       throw ArgumentError('Invalid interaction');
     }
     _interactions.add(

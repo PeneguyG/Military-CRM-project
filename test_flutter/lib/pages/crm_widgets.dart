@@ -1,4 +1,5 @@
 import 'rich_text_widgets.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -449,6 +450,229 @@ IconData attachmentIcon(String fileName) {
   };
 }
 
+class InteractionAttachmentTile extends StatelessWidget {
+  const InteractionAttachmentTile({super.key, required this.attachment});
+
+  final InteractionAttachment attachment;
+
+  bool get _isImage {
+    final extension = attachment.fileName.split('.').last.toLowerCase();
+    return (attachment.mimeType?.startsWith('image/') ?? false) &&
+            extension != 'svg' ||
+        const {'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'}.contains(extension);
+  }
+
+  bool get _isText {
+    final extension = attachment.fileName.split('.').last.toLowerCase();
+    return attachment.mimeType?.startsWith('text/') == true ||
+        const {
+          'txt',
+          'csv',
+          'json',
+          'xml',
+          'md',
+          'log',
+          'rtf',
+          'yaml',
+          'yml',
+          'svg',
+        }.contains(extension);
+  }
+
+  String get _textContent => utf8.decode(
+    attachment.bytes.take(2 * 1024 * 1024).toList(),
+    allowMalformed: true,
+  );
+
+  Future<void> _showExpandedPreview(BuildContext context) => showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      final viewport = MediaQuery.sizeOf(dialogContext);
+      return Dialog(
+        constraints: responsiveDialogConstraints(dialogContext),
+        insetPadding: responsiveDialogInsetPadding(dialogContext),
+        child: SizedBox(
+          width: viewport.width * 0.9,
+          height: viewport.height * 0.88,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Icon(attachmentIcon(attachment.fileName)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        attachment.fileName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(dialogContext).textTheme.titleMedium,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(child: _previewContent(dialogContext, expanded: true)),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
+  Widget _previewContent(BuildContext context, {required bool expanded}) {
+    if (_isImage) {
+      return ClipRect(
+        child: SizedBox(
+          height: expanded ? double.infinity : 280,
+          width: double.infinity,
+          child: InteractiveViewer(
+            minScale: 1,
+            maxScale: 6,
+            child: Image.memory(
+              attachment.bytes,
+              width: double.infinity,
+              height: double.infinity,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Center(
+                child: Text('This image could not be previewed.'),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    if (_isText) {
+      final truncated = attachment.bytes.length > 2 * 1024 * 1024;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: SingleChildScrollView(child: SelectableText(_textContent)),
+          ),
+          if (truncated)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('Preview limited to the first 2 MB.'),
+            ),
+        ],
+      );
+    }
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            attachmentIcon(attachment.fileName),
+            size: 44,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'This file type can’t be previewed in the contact history.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: () => _openWithDefaultApp(context),
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Open with default app'),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'The CRM keeps the saved attachment in its database.',
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openWithDefaultApp(BuildContext context) async {
+    Directory? temporaryDirectory;
+    try {
+      temporaryDirectory = await Directory.systemTemp.createTemp(
+        'steel_wings_attachment_preview_',
+      );
+      final safeName = attachment.fileName
+          .split(RegExp(r'[\\/]'))
+          .last
+          .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+      final outputName = safeName.isEmpty ? 'attachment' : safeName;
+      final file = File(
+        '${temporaryDirectory.path}${Platform.pathSeparator}$outputName',
+      );
+      await file.writeAsBytes(attachment.bytes, flush: true);
+      final opened = await launchUrl(
+        file.uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) throw StateError('No application opened the attachment.');
+      final cleanupDirectory = temporaryDirectory;
+      unawaited(
+        Future<void>.delayed(const Duration(hours: 1), () async {
+          if (await cleanupDirectory.exists()) {
+            await cleanupDirectory.delete(recursive: true);
+          }
+        }),
+      );
+    } catch (_) {
+      if (temporaryDirectory != null && await temporaryDirectory.exists()) {
+        await temporaryDirectory.delete(recursive: true);
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open this attachment.')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ExpansionTile(
+    leading: Icon(attachmentIcon(attachment.fileName)),
+    title: Text(attachment.fileName),
+    subtitle: Text(
+      '${formatAttachmentSize(attachment.bytes.length)} · Stored in CRM',
+    ),
+    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+    children: [
+      if (_isImage)
+        _previewContent(context, expanded: false)
+      else if (_isText)
+        SizedBox(height: 240, child: _previewContent(context, expanded: true))
+      else
+        _previewContent(context, expanded: false),
+      Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          onPressed: () => _showExpandedPreview(context),
+          icon: const Icon(Icons.open_in_full),
+          label: const Text('Expand preview'),
+        ),
+      ),
+    ],
+  );
+}
+
+Future<void> showInteractionAttachmentPreview(
+  BuildContext context,
+  InteractionAttachment attachment,
+) => InteractionAttachmentTile(
+  attachment: attachment,
+)._showExpandedPreview(context);
+
 Future<String?> phoneAction(BuildContext context, String phone) async {
   final type = await showModalBottomSheet<String>(
     context: context,
@@ -512,6 +736,8 @@ class RecordForm extends StatefulWidget {
     required this.values,
     required this.fields,
     this.dropdownFields = const {},
+    this.dependentDropdownOptions = const {},
+    this.dropdownDependencies = const {},
     this.tagDefinitions = const [],
     this.organizations,
     this.contactStatus,
@@ -524,6 +750,8 @@ class RecordForm extends StatefulWidget {
   final Map<String, Object?> values;
   final Map<String, String> fields;
   final Map<String, List<String>> dropdownFields;
+  final Map<String, Map<String, List<String>>> dependentDropdownOptions;
+  final Map<String, String> dropdownDependencies;
   final List<ProfileTagDefinition> tagDefinitions;
   final List<Organization>? organizations;
   final ContactStatus? contactStatus;
@@ -596,6 +824,13 @@ class _RecordFormState extends State<RecordForm> {
   @override
   void initState() {
     super.initState();
+    for (final field in widget.dropdownDependencies.keys) {
+      final options = _dropdownOptionsFor(field);
+      final currentValue = _dropdownValues[field] ?? '';
+      if (options != null && !options.contains(currentValue)) {
+        _dropdownValues[field] = '';
+      }
+    }
     for (final controller in _controllers.values) {
       controller.addListener(_markUnsavedChanges);
     }
@@ -610,6 +845,16 @@ class _RecordFormState extends State<RecordForm> {
   void _markUnsavedChanges() {
     if (!widget.confirmDiscardOnExit || _hasUnsavedChanges) return;
     setState(() => _hasUnsavedChanges = true);
+  }
+
+  List<String>? _dropdownOptionsFor(String field) {
+    final sourceField = widget.dropdownDependencies[field];
+    final optionsBySource = widget.dependentDropdownOptions[field];
+    if (sourceField != null && optionsBySource != null) {
+      return optionsBySource[_dropdownValues[sourceField] ?? ''] ??
+          widget.dropdownFields[field];
+    }
+    return widget.dropdownFields[field];
   }
 
   Future<void> _requestClose() async {
@@ -724,17 +969,27 @@ class _RecordFormState extends State<RecordForm> {
       return _additionalEmailsField(entry.value);
     }
 
-    final options = widget.dropdownFields[entry.key];
+    final options = _dropdownOptionsFor(entry.key);
     if (options != null) {
       final selectedValue = _dropdownValues[entry.key] ?? '';
       final availableOptions = [...options];
-      if (!availableOptions.contains(selectedValue)) {
+      final isDependentDropdown = widget.dropdownDependencies.containsKey(
+        entry.key,
+      );
+      if (!isDependentDropdown && !availableOptions.contains(selectedValue)) {
         availableOptions.add(selectedValue);
       }
 
       return AnchoredDropdown<String>(
+        key: isDependentDropdown
+            ? ValueKey(
+                '${entry.key}:${_dropdownValues[widget.dropdownDependencies[entry.key]]}',
+              )
+            : null,
         label: entry.value,
-        initialSelection: selectedValue,
+        initialSelection: availableOptions.contains(selectedValue)
+            ? selectedValue
+            : '',
         entries: [
           for (final option in availableOptions)
             DropdownMenuEntry(
@@ -746,6 +1001,14 @@ class _RecordFormState extends State<RecordForm> {
           _markUnsavedChanges();
           setState(() {
             _dropdownValues[entry.key] = value ?? '';
+            for (final dependency in widget.dropdownDependencies.entries) {
+              if (dependency.value != entry.key) continue;
+              final dependentOptions =
+                  _dropdownOptionsFor(dependency.key) ?? const <String>[];
+              if (!dependentOptions.contains(_dropdownValues[dependency.key])) {
+                _dropdownValues[dependency.key] = '';
+              }
+            }
           });
         },
       );
@@ -1610,8 +1873,14 @@ Uint8List? _readPhotoBytes(Object? value) {
 }
 
 class InteractionForm extends StatefulWidget {
-  const InteractionForm({super.key, this.initialType = 'Call', this.onSave});
+  const InteractionForm({
+    super.key,
+    this.initialType = 'Call',
+    this.followUpOnly = false,
+    this.onSave,
+  });
   final String initialType;
+  final bool followUpOnly;
   final Future<void> Function(Map<String, Object?>)? onSave;
   @override
   State<InteractionForm> createState() => _InteractionFormState();
@@ -1637,8 +1906,23 @@ class _InteractionFormState extends State<InteractionForm> {
   @override
   void initState() {
     super.initState();
+    _showFollowUp = widget.followUpOnly;
+    if (widget.followUpOnly) {
+      _followUpTime = const TimeOfDay(hour: 9, minute: 0);
+    }
     _summary.addListener(_markUnsavedChanges);
     _followUpReason.addListener(_markUnsavedChanges);
+  }
+
+  bool _initializedFollowUpTimeLabel = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.followUpOnly && !_initializedFollowUpTimeLabel) {
+      _followUpTimeText.text = _followUpTime!.format(context);
+      _initializedFollowUpTimeLabel = true;
+    }
   }
 
   void _markUnsavedChanges() {
@@ -1661,8 +1945,8 @@ class _InteractionFormState extends State<InteractionForm> {
         constraints: responsiveDialogConstraints(dialogContext),
         insetPadding: responsiveDialogInsetPadding(dialogContext),
         title: const Text('Exit without saving?'),
-        content: const Text(
-          'Are you sure you want to close the log window? Your progress will '
+        content: Text(
+          'Are you sure you want to close the ${widget.followUpOnly ? 'follow-up' : 'log'} window? Your progress will '
           'not be saved if you come back.',
         ),
         actions: [
@@ -1672,7 +1956,11 @@ class _InteractionFormState extends State<InteractionForm> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Close log window'),
+            child: Text(
+              widget.followUpOnly
+                  ? 'Close follow-up window'
+                  : 'Close log window',
+            ),
           ),
         ],
       ),
@@ -1847,7 +2135,13 @@ class _InteractionFormState extends State<InteractionForm> {
       for (final file in files) {
         final bytes = await file.readAsBytes();
         if (bytes.isNotEmpty) {
-          picked.add(InteractionAttachment(fileName: file.name, bytes: bytes));
+          picked.add(
+            InteractionAttachment(
+              fileName: file.name,
+              mimeType: file.mimeType,
+              bytes: bytes,
+            ),
+          );
         }
       }
       if (!mounted) return;
@@ -1893,7 +2187,9 @@ class _InteractionFormState extends State<InteractionForm> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Log Interaction',
+                      widget.followUpOnly
+                          ? 'Schedule Follow-Up'
+                          : 'Log Interaction',
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                   ),
@@ -1918,116 +2214,139 @@ class _InteractionFormState extends State<InteractionForm> {
                                 ),
                               ),
                             ),
-                          const Text(
-                            'Record what happened. Opening a phone app does not confirm a completed call or sent text.',
+                          Text(
+                            widget.followUpOnly
+                                ? 'Schedule a follow-up reminder for this contact.'
+                                : 'Record what happened. Opening a phone app does not confirm a completed call or sent text.',
                           ),
                           const SizedBox(height: 16),
-                          AnchoredDropdown<String>(
-                            label: 'Interaction type',
-                            initialSelection: _type,
-                            entries: [
-                              for (final type in InteractionLog.types)
-                                DropdownMenuEntry(value: type, label: type),
-                            ],
-                            onSelected: (value) {
-                              _markUnsavedChanges();
-                              setState(() => _type = value ?? _type);
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _summary,
-                            minLines: 4,
-                            maxLines: 10,
-                            textCapitalization: TextCapitalization.sentences,
-                            textAlignVertical: TextAlignVertical.top,
-                            decoration: const InputDecoration(
-                              labelText: 'Summary',
-                              alignLabelWithHint: true,
-                              border: OutlineInputBorder(),
-                            ),
-                            validator: (value) =>
-                                value == null || value.trim().isEmpty
-                                ? 'Enter a summary'
-                                : null,
-                          ),
-                          const SizedBox(height: 16),
-                          InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Attachments',
-                              border: OutlineInputBorder(),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: _saving ? null : _pickAttachments,
-                                  icon: const Icon(Icons.attach_file),
-                                  label: const Text('Attach files'),
-                                ),
-                                if (_attachments.isEmpty)
-                                  const Padding(
-                                    padding: EdgeInsets.only(top: 4),
-                                    child: Text('No files attached.'),
-                                  ),
-                                for (
-                                  var index = 0;
-                                  index < _attachments.length;
-                                  index++
-                                )
-                                  ListTile(
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: Icon(
-                                      attachmentIcon(
-                                        _attachments[index].fileName,
-                                      ),
-                                    ),
-                                    title: Text(
-                                      _attachments[index].fileName,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    subtitle: Text(
-                                      formatAttachmentSize(
-                                        _attachments[index].bytes.length,
-                                      ),
-                                    ),
-                                    trailing: IconButton(
-                                      tooltip: 'Remove attachment',
-                                      onPressed: _saving
-                                          ? null
-                                          : () {
-                                              _markUnsavedChanges();
-                                              setState(
-                                                () => _attachments.removeAt(
-                                                  index,
-                                                ),
-                                              );
-                                            },
-                                      icon: const Icon(Icons.close),
-                                    ),
-                                  ),
+                          if (!widget.followUpOnly) ...[
+                            AnchoredDropdown<String>(
+                              label: 'Interaction type',
+                              initialSelection: _type,
+                              entries: [
+                                for (final type in InteractionLog.types)
+                                  DropdownMenuEntry(value: type, label: type),
                               ],
+                              onSelected: (value) {
+                                _markUnsavedChanges();
+                                setState(() => _type = value ?? _type);
+                              },
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: OutlinedButton.icon(
-                              onPressed: _saving ? null : _toggleFollowUp,
-                              icon: Icon(
-                                _showFollowUp
-                                    ? Icons.remove_circle_outline
-                                    : Icons.add_alarm,
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _summary,
+                              minLines: 4,
+                              maxLines: 10,
+                              textCapitalization: TextCapitalization.sentences,
+                              textAlignVertical: TextAlignVertical.top,
+                              decoration: const InputDecoration(
+                                labelText: 'Summary',
+                                alignLabelWithHint: true,
+                                border: OutlineInputBorder(),
                               ),
-                              label: Text(
-                                _showFollowUp
-                                    ? 'Remove follow-up'
-                                    : 'Set follow-up (optional)',
+                              validator: (value) =>
+                                  !widget.followUpOnly &&
+                                      (value == null || value.trim().isEmpty)
+                                  ? 'Enter a summary'
+                                  : null,
+                            ),
+                            const SizedBox(height: 16),
+                            InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Attachments',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: _saving
+                                        ? null
+                                        : _pickAttachments,
+                                    icon: const Icon(Icons.attach_file),
+                                    label: const Text('Attach files'),
+                                  ),
+                                  if (_attachments.isEmpty)
+                                    const Padding(
+                                      padding: EdgeInsets.only(top: 4),
+                                      child: Text('No files attached.'),
+                                    ),
+                                  for (
+                                    var index = 0;
+                                    index < _attachments.length;
+                                    index++
+                                  )
+                                    ListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(
+                                        attachmentIcon(
+                                          _attachments[index].fileName,
+                                        ),
+                                      ),
+                                      title: Text(
+                                        _attachments[index].fileName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(
+                                        formatAttachmentSize(
+                                          _attachments[index].bytes.length,
+                                        ),
+                                      ),
+                                      trailing: Wrap(
+                                        children: [
+                                          IconButton(
+                                            tooltip: 'Preview attachment',
+                                            onPressed: () =>
+                                                showInteractionAttachmentPreview(
+                                                  context,
+                                                  _attachments[index],
+                                                ),
+                                            icon: const Icon(
+                                              Icons.visibility_outlined,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Remove attachment',
+                                            onPressed: _saving
+                                                ? null
+                                                : () {
+                                                    _markUnsavedChanges();
+                                                    setState(
+                                                      () => _attachments
+                                                          .removeAt(index),
+                                                    );
+                                                  },
+                                            icon: const Icon(Icons.close),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
-                          ),
+                          ],
+                          if (!widget.followUpOnly) ...[
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: OutlinedButton.icon(
+                                onPressed: _saving ? null : _toggleFollowUp,
+                                icon: Icon(
+                                  _showFollowUp
+                                      ? Icons.remove_circle_outline
+                                      : Icons.add_alarm,
+                                ),
+                                label: Text(
+                                  _showFollowUp
+                                      ? 'Remove follow-up'
+                                      : 'Set follow-up (optional)',
+                                ),
+                              ),
+                            ),
+                          ],
                           if (_showFollowUp) ...[
                             const SizedBox(height: 8),
                             LayoutBuilder(
@@ -2166,12 +2485,18 @@ class _InteractionFormState extends State<InteractionForm> {
                                     setState(() {
                                       _saving = false;
                                       _error =
-                                          'Save failed. Your summary and attachments are retained. Please try again.';
+                                          'Save failed. Your entries are retained. Please try again.';
                                     });
                                   }
                                 }
                               },
-                        child: Text(_saving ? 'Saving…' : 'Save interaction'),
+                        child: Text(
+                          _saving
+                              ? 'Saving…'
+                              : widget.followUpOnly
+                              ? 'Schedule follow-up'
+                              : 'Save interaction',
+                        ),
                       ),
                     ],
                   ),

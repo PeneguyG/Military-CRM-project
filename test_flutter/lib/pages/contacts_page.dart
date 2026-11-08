@@ -125,6 +125,7 @@ final _militaryRanks = <String>[
     'Senior Airman',
     'Chief Master Sergeant',
     'Chief Master Sergeant of the Air Force',
+    'Chief Master Sergeant of the Space Force',
     'Warrant Officer 1',
     'Chief Warrant Officer 2',
     'Chief Warrant Officer 3',
@@ -152,6 +153,144 @@ final _militaryRanks = <String>[
     'Admiral',
     'Fleet Admiral',
   ]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()))),
+];
+
+const _armyRankNames = <String>{
+  'Private',
+  'Private Second Class',
+  'Private First Class',
+  'Specialist',
+  'Corporal',
+  'Sergeant',
+  'Staff Sergeant',
+  'Sergeant First Class',
+  'Master Sergeant',
+  'First Sergeant',
+  'Sergeant Major',
+  'Command Sergeant Major',
+  'Sergeant Major of the Army',
+  'Warrant Officer 1',
+  'Chief Warrant Officer 2',
+  'Chief Warrant Officer 3',
+  'Chief Warrant Officer 4',
+  'Chief Warrant Officer 5',
+  'Second Lieutenant',
+  'First Lieutenant',
+  'Captain',
+  'Major',
+  'Lieutenant Colonel',
+  'Colonel',
+  'Brigadier General',
+  'Major General',
+  'Lieutenant General',
+  'General',
+  'General of the Army',
+};
+
+const _navyRankNames = <String>{
+  'Seaman Recruit',
+  'Seaman Apprentice',
+  'Seaman',
+  'Petty Officer Third Class',
+  'Petty Officer Second Class',
+  'Petty Officer First Class',
+  'Chief Petty Officer',
+  'Senior Chief Petty Officer',
+  'Master Chief Petty Officer',
+  'Master Chief Petty Officer of the Navy',
+  'Chief Warrant Officer 2',
+  'Chief Warrant Officer 3',
+  'Chief Warrant Officer 4',
+  'Chief Warrant Officer 5',
+  'Ensign',
+  'Lieutenant Junior Grade',
+  'Lieutenant',
+  'Lieutenant Commander',
+  'Commander',
+  'Captain',
+  'Rear Admiral (Lower Half)',
+  'Rear Admiral (Upper Half)',
+  'Vice Admiral',
+  'Admiral',
+  'Fleet Admiral',
+};
+
+const _airForceRankNames = <String>{
+  'Airman Basic',
+  'Airman',
+  'Airman First Class',
+  'Senior Airman',
+  'Staff Sergeant',
+  'Technical Sergeant',
+  'Master Sergeant',
+  'Senior Master Sergeant',
+  'First Sergeant',
+  'Chief Master Sergeant',
+  'Chief Master Sergeant of the Air Force',
+  'Second Lieutenant',
+  'First Lieutenant',
+  'Captain',
+  'Major',
+  'Lieutenant Colonel',
+  'Colonel',
+  'Brigadier General',
+  'Major General',
+  'Lieutenant General',
+  'General',
+};
+
+const _marineCorpsRankNames = <String>{
+  'Private',
+  'Private First Class',
+  'Lance Corporal',
+  'Corporal',
+  'Sergeant',
+  'Staff Sergeant',
+  'Gunnery Sergeant',
+  'Master Sergeant',
+  'First Sergeant',
+  'Sergeant Major',
+  'Sergeant Major of the Marine Corps',
+  'Warrant Officer 1',
+  'Chief Warrant Officer 2',
+  'Chief Warrant Officer 3',
+  'Chief Warrant Officer 4',
+  'Chief Warrant Officer 5',
+  'Second Lieutenant',
+  'First Lieutenant',
+  'Captain',
+  'Major',
+  'Lieutenant Colonel',
+  'Colonel',
+  'Brigadier General',
+  'Major General',
+  'Lieutenant General',
+  'General',
+};
+
+final _militaryRanksByBranch = <String, List<String>>{
+  '': _militaryRanks,
+  'Army': _branchRanks(_armyRankNames),
+  'Army National Guard': _branchRanks(_armyRankNames),
+  'Navy': _branchRanks(_navyRankNames),
+  'Coast Guard': _branchRanks(
+    {..._navyRankNames}
+      ..remove('Chief Warrant Officer 5')
+      ..remove('Fleet Admiral'),
+  ),
+  'Air Force': _branchRanks(_airForceRankNames),
+  'Air National Guard': _branchRanks(_airForceRankNames),
+  'Space Force': _branchRanks(
+    {..._airForceRankNames, 'Chief Master Sergeant of the Space Force'}
+      ..remove('Chief Master Sergeant of the Air Force'),
+  ),
+  'Marine Corps': _branchRanks(_marineCorpsRankNames),
+  'Other / Allied service': _militaryRanks,
+};
+
+List<String> _branchRanks(Set<String> branchRanks) => [
+  '',
+  ..._militaryRanks.skip(1).where(branchRanks.contains),
 ];
 
 Future<void> editContact(
@@ -210,6 +349,8 @@ Future<void> editContact(
             .map((tag) => tag.value)
             .toList(),
       },
+      dependentDropdownOptions: {'military_rank': _militaryRanksByBranch},
+      dropdownDependencies: const {'military_rank': 'military_branch'},
       fields: const {
         'photo_blob': 'Profile photo',
         'prefix': 'Prefix',
@@ -235,6 +376,50 @@ Future<void> editContact(
         'talking_points': 'Talking points',
       },
     ),
+  );
+}
+
+Future<void> showArchivedContactProfile(
+  BuildContext context,
+  CrmStore store,
+  Contact contact, {
+  ValueChanged<String>? onViewMap,
+}) async {
+  final contactId = contact.id;
+  if (contactId == null) return;
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      final viewport = MediaQuery.sizeOf(dialogContext);
+      return Dialog(
+        constraints: responsiveDialogConstraints(dialogContext),
+        insetPadding: responsiveDialogInsetPadding(dialogContext),
+        child: SizedBox(
+          width: viewport.width * 0.9,
+          height: viewport.height * 0.88,
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  tooltip: 'Close profile',
+                  onPressed: () => Navigator.pop(dialogContext),
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+              Expanded(
+                child: ContactDetail(
+                  store: store,
+                  id: contactId,
+                  allowArchivedView: true,
+                  onViewMap: onViewMap,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
   );
 }
 
@@ -294,6 +479,7 @@ class _ContactsPageState extends State<ContactsPage> {
         final latestInteractionByContact = <int, DateTime>{};
         final latestCallByContact = <int, DateTime>{};
         for (final interaction in widget.store.interactions) {
+          if (interaction.isFollowUpOnly) continue;
           final contactId = interaction.contactId;
           final previous = latestInteractionByContact[contactId];
           if (previous == null || interaction.date.isAfter(previous)) {
@@ -490,10 +676,12 @@ class ContactDetail extends StatefulWidget {
     required this.store,
     required this.id,
     this.onViewMap,
+    this.allowArchivedView = false,
   });
   final CrmStore store;
   final int id;
   final ValueChanged<String>? onViewMap;
+  final bool allowArchivedView;
 
   @override
   State<ContactDetail> createState() => _ContactDetailState();
@@ -517,24 +705,29 @@ class _ContactDetailState extends State<ContactDetail> {
 
   Future<void> _log(
     BuildContext context,
-    Contact c, [
+    Contact c, {
     String type = 'Call',
-  ]) async {
+    bool followUpOnly = false,
+  }) async {
     await showDialog<Map<String, Object?>>(
       context: context,
       barrierDismissible: false,
       builder: (_) => InteractionForm(
         initialType: type,
+        followUpOnly: followUpOnly,
         onSave: (result) => store.logInteraction(
           InteractionLog(
             contactId: id,
             organizationId: c.organizationId,
             date: DateTime.now(),
-            type: result['type'] as String,
-            summary: result['summary'] as String,
+            type: followUpOnly ? 'Other' : result['type'] as String,
+            summary: followUpOnly
+                ? 'Follow-up scheduled'
+                : result['summary'] as String,
             followUpDate: result['followUp'] as DateTime?,
             followUpTime: result['followUpTime'] as String?,
             followUpReason: result['followUpReason'] as String? ?? '',
+            isFollowUpOnly: followUpOnly,
             attachments:
                 (result['attachments'] as List<InteractionAttachment>?) ??
                 const [],
@@ -568,7 +761,7 @@ class _ContactDetailState extends State<ContactDetail> {
     builder: (context, _) {
       final c = store.contact(id);
       if (c == null) return const Center(child: Text('Contact unavailable'));
-      if (c.isArchived) {
+      if (c.isArchived && !widget.allowArchivedView) {
         return const Center(
           child: Text(
             'This contact is archived. Open the Archive tab to view it.',
@@ -621,6 +814,7 @@ class _ContactDetailState extends State<ContactDetail> {
       });
       final logs = store.interactions.where((i) => i.contactId == id).toList()
         ..sort((a, b) => b.date.compareTo(a.date));
+      final interactionLogs = logs.where((log) => !log.isFollowUpOnly).toList();
       final contactNotes = store.notesForContact(id);
       final localizations = MaterialLocalizations.of(context);
       final titleDetails = Column(
@@ -655,14 +849,24 @@ class _ContactDetailState extends State<ContactDetail> {
               icon: const Icon(Icons.map_outlined),
               label: const Text('View on Map'),
             ),
-          OutlinedButton.icon(
-            onPressed: () => runDatabaseAction(
-              context,
-              () => store.archiveContact(c.id!, true),
+          if (c.isArchived)
+            FilledButton.tonalIcon(
+              onPressed: () => runDatabaseAction(
+                context,
+                () => store.archiveContact(c.id!, false),
+              ),
+              icon: const Icon(Icons.unarchive_outlined),
+              label: const Text('Restore'),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: () => runDatabaseAction(
+                context,
+                () => store.archiveContact(c.id!, true),
+              ),
+              icon: const Icon(Icons.archive_outlined),
+              label: const Text('Archive'),
             ),
-            icon: const Icon(Icons.archive_outlined),
-            label: const Text('Archive'),
-          ),
         ],
       );
       final statusTags = SizedBox(
@@ -759,9 +963,9 @@ class _ContactDetailState extends State<ContactDetail> {
           const SizedBox(height: 12),
           InfoCard(
             'Last interaction',
-            logs.isEmpty
+            interactionLogs.isEmpty
                 ? 'No interactions recorded'
-                : '${localizations.formatMediumDate(logs.first.date.toLocal())} · ${TimeOfDay.fromDateTime(logs.first.date.toLocal()).format(context)} · ${logs.first.type}',
+                : '${localizations.formatMediumDate(interactionLogs.first.date.toLocal())} · ${TimeOfDay.fromDateTime(interactionLogs.first.date.toLocal()).format(context)} · ${interactionLogs.first.type}',
             icon: Icons.history,
           ),
           const SizedBox(height: 12),
@@ -823,7 +1027,7 @@ class _ContactDetailState extends State<ContactDetail> {
                                   selectedPhone.number,
                                 );
                                 if (type != null && context.mounted) {
-                                  await _log(context, c, type);
+                                  await _log(context, c, type: type);
                                 }
                               },
                         icon: const Icon(Icons.phone_outlined),
@@ -963,10 +1167,21 @@ class _ContactDetailState extends State<ContactDetail> {
           const SizedBox(height: 16),
           Align(
             alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed: () => _log(context, c),
-              icon: const Icon(Icons.note_add),
-              label: const Text('Log Interaction / Follow-Up'),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => _log(context, c),
+                  icon: const Icon(Icons.note_add),
+                  label: const Text('Log Interaction'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _log(context, c, followUpOnly: true),
+                  icon: const Icon(Icons.add_alarm),
+                  label: const Text('Schedule Follow-Up'),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 20),
@@ -979,7 +1194,7 @@ class _ContactDetailState extends State<ContactDetail> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Interaction history · Newest first',
+                  'Interaction & follow-up history · Newest first',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
@@ -988,7 +1203,7 @@ class _ContactDetailState extends State<ContactDetail> {
           if (logs.isEmpty)
             const Padding(
               padding: EdgeInsets.all(16),
-              child: Text('No interactions recorded'),
+              child: Text('No interactions or follow-ups recorded'),
             ),
           for (final log in logs)
             Card(
@@ -1000,36 +1215,48 @@ class _ContactDetailState extends State<ContactDetail> {
                     Row(
                       children: [
                         Icon(
-                          Icons.forum_outlined,
+                          log.isFollowUpOnly
+                              ? Icons.add_alarm
+                              : Icons.forum_outlined,
                           size: 18,
                           color: Theme.of(context).colorScheme.primary,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            '${log.type} · ${localizations.formatMediumDate(log.date.toLocal())} ${TimeOfDay.fromDateTime(log.date.toLocal()).format(context)}',
+                            '${log.isFollowUpOnly ? 'Follow-up scheduled' : log.type} · ${localizations.formatMediumDate(log.date.toLocal())} ${TimeOfDay.fromDateTime(log.date.toLocal()).format(context)}',
                             style: Theme.of(context).textTheme.titleSmall,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    SelectableText(log.summary),
-                    if (log.attachments.isNotEmpty) ...[
+                    if (!log.isFollowUpOnly) ...[
+                      const SizedBox(height: 8),
+                      SelectableText.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: 'Summary: ',
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            TextSpan(text: log.summary),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (!log.isFollowUpOnly && log.attachments.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Text(
                         'Attachments',
                         style: Theme.of(context).textTheme.labelLarge,
                       ),
                       for (final attachment in log.attachments)
-                        ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(attachmentIcon(attachment.fileName)),
-                          title: Text(attachment.fileName),
-                          subtitle: Text(
-                            formatAttachmentSize(attachment.bytes.length),
+                        InteractionAttachmentTile(
+                          key: ValueKey(
+                            '${attachment.id}:${attachment.fileName}',
                           ),
+                          attachment: attachment,
                         ),
                     ],
                     if (log.followUpDate != null)
@@ -1038,7 +1265,7 @@ class _ContactDetailState extends State<ContactDetail> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Divider(height: 24),
+                            if (!log.isFollowUpOnly) const Divider(height: 24),
                             Text.rich(
                               TextSpan(
                                 children: [

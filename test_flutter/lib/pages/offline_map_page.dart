@@ -38,7 +38,9 @@ class MapRecord {
         : null;
   }
 
-  Color get color => organization != null
+  Color get color => archived
+      ? Colors.grey
+      : organization != null
       ? Colors.blue
       : contact!.lifeStatus == 'deceased'
       ? Colors.grey
@@ -137,6 +139,13 @@ class _OfflineMapPageState extends State<OfflineMapPage> {
   void _select(MapRecord record, {bool center = false}) {
     setState(() => _selectedKey = record.key);
     if (center && record.point != null && _ready) _map.move(record.point!, 10);
+  }
+
+  void _setArchivedVisible(bool visible) {
+    setState(() => _archived = visible);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fitRecords();
+    });
   }
 
   Future<void> _enterLocation() async {
@@ -320,9 +329,9 @@ class _OfflineMapPageState extends State<OfflineMapPage> {
                   ),
                   const SizedBox(width: 6),
                   FilterChip(
-                    label: const Text('Archived records'),
+                    label: const Text('Include archived'),
                     selected: _archived,
-                    onSelected: (v) => setState(() => _archived = v),
+                    onSelected: _setArchivedVisible,
                   ),
                 ],
               ),
@@ -637,9 +646,7 @@ class _OfflineMapPageState extends State<OfflineMapPage> {
                     border: Border.all(color: record.color),
                   ),
                   child: Text(
-                    record.contact == null
-                        ? record.name
-                        : '${record.contact!.militaryRank} ${record.name}',
+                    '${record.archived ? 'Archived · ' : ''}${record.contact == null ? record.name : '${record.contact!.militaryRank} ${record.name}'}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
@@ -678,13 +685,16 @@ class _OfflineMapPageState extends State<OfflineMapPage> {
               leading: Icon(record.icon, color: record.color),
               title: Text(record.name),
               subtitle: Text(
-                record.point == null
-                    ? 'Unmapped — assign a pin'
-                    : OfflineMapHelper.formatRelativePosition(
-                        _reference,
-                        record.point!,
-                        _referenceName,
-                      ),
+                [
+                  if (record.archived) 'Archived',
+                  record.point == null
+                      ? 'Unmapped — assign a pin'
+                      : OfflineMapHelper.formatRelativePosition(
+                          _reference,
+                          record.point!,
+                          _referenceName,
+                        ),
+                ].join(' · '),
               ),
               onTap: () => _select(record, center: true),
             ),

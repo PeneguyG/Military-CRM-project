@@ -12,7 +12,7 @@ import 'dart:isolate';
 import 'package:sqlite3/sqlite3.dart';
 import '../models/crm_models.dart';
 
-const crmSchemaVersion = 18;
+const crmSchemaVersion = 19;
 
 typedef DatabaseSnapshot = Map<String, List<Map<String, Object?>>>;
 
@@ -192,6 +192,7 @@ Future<DatabaseSnapshot> _execute(
                 .replaceFirst('T', ' ')
                 .replaceAll('Z', ''),
             'summary': data['summary'],
+            'is_follow_up_only': data['is_follow_up_only'] ?? 0,
             'follow_up_required': followUp == null ? 0 : 1,
             'follow_up_date': followUp?.substring(0, 10),
             'follow_up_time': data['follow_up_time'],
@@ -529,6 +530,14 @@ void _migrate(Database db) {
     if (version < 18) {
       _createSampleRecordRegistry(db, registerExisting: true);
       db.execute('INSERT INTO crm_app_migrations(version) VALUES(18)');
+      version = 18;
+    }
+    if (version < 19) {
+      db.execute('''
+        ALTER TABLE interactions ADD COLUMN is_follow_up_only INTEGER NOT NULL DEFAULT 0
+          CHECK(is_follow_up_only IN (0,1));
+        INSERT INTO crm_app_migrations(version) VALUES(19);
+      ''');
     }
     db.execute('COMMIT;');
   } catch (_) {
@@ -618,6 +627,7 @@ DatabaseSnapshot _snapshot(Database db) {
                 : '${scheduled.hour.toString().padLeft(2, '0')}:${scheduled.minute.toString().padLeft(2, '0')}',
             'follow_up_reason': r['follow_up_reason']?.toString() ?? '',
             'follow_up_completed': r['follow_up_completed'],
+            'is_follow_up_only': r['is_follow_up_only'] ?? 0,
             'attachments': attachmentsByInteraction[r['id'] as int] ?? const [],
           };
         })

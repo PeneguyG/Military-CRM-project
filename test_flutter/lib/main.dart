@@ -656,7 +656,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
   /// Opens a contact in the existing Contacts page.
   void _openContact(Contact contact) {
     if (contact.isArchived) {
-      editContact(context, _store, contact);
+      showArchivedContactProfile(context, _store, contact, onViewMap: _viewMap);
       return;
     }
     setState(() {

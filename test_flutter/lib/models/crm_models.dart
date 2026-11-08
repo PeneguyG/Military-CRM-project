@@ -679,6 +679,7 @@ class InteractionLog {
     this.followUpTime,
     this.followUpReason = '',
     this.followUpCompleted = false,
+    this.isFollowUpOnly = false,
     this.attachments = const [],
   });
   static const types = ['Call', 'Text', 'In-Person', 'Email'];
@@ -690,6 +691,7 @@ class InteractionLog {
   final DateTime? followUpDate;
   final String? followUpTime;
   final bool followUpCompleted;
+  final bool isFollowUpOnly;
   final List<InteractionAttachment> attachments;
   Map<String, Object?> toMap() => {
     'id': id,
@@ -702,6 +704,7 @@ class InteractionLog {
     'follow_up_time': followUpTime,
     'follow_up_reason': followUpReason,
     'follow_up_completed': followUpCompleted ? 1 : 0,
+    'is_follow_up_only': isFollowUpOnly ? 1 : 0,
     'attachments': attachments.map((attachment) => attachment.toMap()).toList(),
   };
   factory InteractionLog.fromMap(Map<String, Object?> m) {
@@ -725,6 +728,7 @@ class InteractionLog {
       followUpTime: m['follow_up_time']?.toString(),
       followUpReason: m['follow_up_reason']?.toString() ?? '',
       followUpCompleted: m['follow_up_completed'] == 1,
+      isFollowUpOnly: m['is_follow_up_only'] == 1,
       attachments: rawAttachments is List
           ? [
               for (final attachment in rawAttachments)
@@ -747,6 +751,7 @@ class InteractionLog {
     Object? followUpTime = _unset,
     String? followUpReason,
     bool? followUpCompleted,
+    bool? isFollowUpOnly,
     List<InteractionAttachment>? attachments,
   }) => InteractionLog(
     id: identical(id, _unset) ? this.id : id as int?,
@@ -765,6 +770,7 @@ class InteractionLog {
         : followUpTime as String?,
     followUpReason: followUpReason ?? this.followUpReason,
     followUpCompleted: followUpCompleted ?? this.followUpCompleted,
+    isFollowUpOnly: isFollowUpOnly ?? this.isFollowUpOnly,
     attachments: attachments ?? this.attachments,
   );
 }

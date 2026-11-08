@@ -122,7 +122,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
             leading: const Icon(Icons.forum_outlined),
             title: Text(contact.fullName),
             subtitle: Text(
-              '${localizations.formatMediumDate(interaction.date.toLocal())} · ${TimeOfDay.fromDateTime(interaction.date.toLocal()).format(context)} · ${interaction.type}\n${interaction.summary}',
+              '${localizations.formatMediumDate(interaction.date.toLocal())} · ${TimeOfDay.fromDateTime(interaction.date.toLocal()).format(context)} · ${interaction.type}\nSummary: ${interaction.summary}',
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
             ),
@@ -698,6 +698,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
     final today = DateUtils.dateOnly(now);
     final start30Days = today.subtract(const Duration(days: 29));
     final recentInteractions = widget.store.interactions.where((interaction) {
+      if (interaction.isFollowUpOnly) return false;
       final date = interaction.date.toLocal();
       return !date.isBefore(start30Days) && !date.isAfter(now);
     }).toList();
@@ -718,6 +719,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
 
     final lastInteractionByContact = <int, DateTime>{};
     for (final interaction in widget.store.interactions) {
+      if (interaction.isFollowUpOnly) continue;
       final date = interaction.date.toLocal();
       if (date.isAfter(now)) continue;
       final previous = lastInteractionByContact[interaction.contactId];
@@ -802,6 +804,7 @@ class _SearchReportingPageState extends State<SearchReportingPage> {
 
     final dailyInteractions = <DateTime, List<InteractionLog>>{};
     for (final interaction in widget.store.interactions) {
+      if (interaction.isFollowUpOnly) continue;
       final date = DateUtils.dateOnly(interaction.date.toLocal());
       if (!date.isBefore(today.subtract(const Duration(days: 13))) &&
           !date.isAfter(today)) {
