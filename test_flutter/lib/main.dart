@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'crm_store.dart';
+import 'data/app_credentials.dart';
 import 'data/crm_database.dart';
 import 'pages/contacts_page.dart';
 import 'pages/organizations_page.dart';
@@ -176,6 +177,12 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
       _opening = null;
     });
   }
+
+  Future<bool> _changePassword(String oldPassword, String newPassword) =>
+      AppCredentials.changePassword(
+        oldPassword: oldPassword,
+        newPassword: newPassword,
+      );
 
   Future<File> _themePreferenceFile() async {
     final supportDirectory = await getApplicationSupportDirectory();
@@ -442,6 +449,7 @@ class _MilitaryCrmAppState extends State<MilitaryCrmApp>
                   use24HourFormat: _use24HourFormat,
                   onTimeFormatChanged: _setTimeFormatPreference,
                   onLock: _lockApp,
+                  onChangePassword: _changePassword,
                 );
               },
             )
@@ -468,9 +476,33 @@ class _SignInPage extends StatefulWidget {
 }
 
 class _SignInPageState extends State<_SignInPage> {
-  static const _password = 'Mushroomkingdom24?';
   final _passwordController = TextEditingController();
+  String? _password;
   String? _error;
+  bool _loadingPassword = true;
+  bool _showPassword = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPassword();
+  }
+
+  Future<void> _loadPassword() async {
+    try {
+      final savedPassword = await AppCredentials.loadPassword();
+      if (mounted) setState(() => _password = savedPassword);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Could not access the saved password. Restart the app and try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingPassword = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -479,6 +511,7 @@ class _SignInPageState extends State<_SignInPage> {
   }
 
   void _submit() {
+    if (_loadingPassword || _password == null) return;
     if (_passwordController.text == _password) {
       FocusScope.of(context).unfocus();
       widget.onAuthenticated();
@@ -521,7 +554,7 @@ class _SignInPageState extends State<_SignInPage> {
                       const SizedBox(height: 24),
                       TextField(
                         controller: _passwordController,
-                        obscureText: true,
+                        obscureText: !_showPassword,
                         maxLength: 32,
                         maxLengthEnforcement: MaxLengthEnforcement.enforced,
                         textInputAction: TextInputAction.done,
@@ -530,6 +563,18 @@ class _SignInPageState extends State<_SignInPage> {
                           labelText: 'Password',
                           counterText: '',
                           prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            tooltip: _showPassword
+                                ? 'Hide password'
+                                : 'Show password',
+                            onPressed: () =>
+                                setState(() => _showPassword = !_showPassword),
+                            icon: Icon(
+                              _showPassword
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                            ),
+                          ),
                           errorText: _error,
                           border: const OutlineInputBorder(),
                         ),
@@ -538,9 +583,13 @@ class _SignInPageState extends State<_SignInPage> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: _submit,
+                          onPressed: _loadingPassword || _password == null
+                              ? null
+                              : _submit,
                           icon: const Icon(Icons.login),
-                          label: const Text('Sign in'),
+                          label: Text(
+                            _loadingPassword ? 'Loading…' : 'Sign in',
+                          ),
                         ),
                       ),
                     ],
@@ -580,6 +629,7 @@ class CrmHomePage extends StatefulWidget {
     required this.use24HourFormat,
     required this.onTimeFormatChanged,
     required this.onLock,
+    this.onChangePassword,
   });
 
   final bool isDarkMode;
@@ -590,6 +640,8 @@ class CrmHomePage extends StatefulWidget {
   final ValueChanged<bool> onAutomaticThemeChanged;
   final ValueChanged<bool?> onTimeFormatChanged;
   final VoidCallback onLock;
+  final Future<bool> Function(String oldPassword, String newPassword)?
+  onChangePassword;
 
   @override
   State<CrmHomePage> createState() => _CrmHomePageState();
@@ -794,18 +846,7 @@ class _CrmHomePageState extends State<CrmHomePage> {
                                   : Icons.menu_open,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _tab == _settingsTab
-                                  ? 'Settings'
-                                  : _destinations[_tab].label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w600),
-                            ),
-                          ),
+                          const Spacer(),
                           Padding(
                             padding: const EdgeInsets.only(right: 8),
                             child: IconButton(
@@ -919,6 +960,9 @@ class _CrmHomePageState extends State<CrmHomePage> {
                             use24HourFormat: widget.use24HourFormat,
                             onTimeFormatChanged: widget.onTimeFormatChanged,
                             onDatabaseLocation: _showDatabaseLocation,
+                            onChangePassword:
+                                widget.onChangePassword ??
+                                (_, _) async => false,
                           ),
                         ],
                       ),

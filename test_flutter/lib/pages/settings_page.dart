@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../crm_store.dart';
 import '../models/crm_models.dart';
@@ -16,6 +17,7 @@ class SettingsPage extends StatelessWidget {
     required this.use24HourFormat,
     required this.onTimeFormatChanged,
     required this.onDatabaseLocation,
+    required this.onChangePassword,
   });
 
   final CrmStore store;
@@ -26,6 +28,8 @@ class SettingsPage extends StatelessWidget {
   final bool? use24HourFormat;
   final ValueChanged<bool?> onTimeFormatChanged;
   final VoidCallback onDatabaseLocation;
+  final Future<bool> Function(String oldPassword, String newPassword)
+  onChangePassword;
 
   Future<void> _addTag(BuildContext context) async {
     final draft = await showDialog<ProfileTagDefinition>(
@@ -43,6 +47,8 @@ class SettingsPage extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       children: [
         Text('Settings', style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 20),
+        _AccountSettingsCard(store: store, onChangePassword: onChangePassword),
         const SizedBox(height: 20),
         Card(
           child: Column(
@@ -141,6 +147,261 @@ class SettingsPage extends StatelessWidget {
           _ProfileTagSetting(tag: tag, store: store),
       ],
     ),
+  );
+}
+
+class _AccountSettingsCard extends StatefulWidget {
+  const _AccountSettingsCard({
+    required this.store,
+    required this.onChangePassword,
+  });
+
+  final CrmStore store;
+  final Future<bool> Function(String oldPassword, String newPassword)
+  onChangePassword;
+
+  @override
+  State<_AccountSettingsCard> createState() => _AccountSettingsCardState();
+}
+
+class _AccountSettingsCardState extends State<_AccountSettingsCard> {
+  late final TextEditingController _nameController = TextEditingController(
+    text: widget.store.userName,
+  );
+  String? _nameError;
+  bool _savingName = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveName() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty || name.length > 50) {
+      setState(() => _nameError = 'Use between 1 and 50 characters.');
+      return;
+    }
+    setState(() {
+      _savingName = true;
+      _nameError = null;
+    });
+    try {
+      await widget.store.saveUserName(name);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Home greeting name updated.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _nameError = 'Could not save the name. Try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _savingName = false);
+    }
+  }
+
+  Future<void> _showChangePassword() async {
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (_) =>
+          _ChangePasswordDialog(onChangePassword: widget.onChangePassword),
+    );
+    if (changed == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Password updated.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Account', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nameController,
+            maxLength: 50,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
+            decoration: InputDecoration(
+              labelText: 'Name on Home tab',
+              helperText: 'Shown in the “Welcome back” greeting.',
+              errorText: _nameError,
+              counterText: '',
+              border: const OutlineInputBorder(),
+            ),
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _showChangePassword,
+                icon: const Icon(Icons.password_outlined),
+                label: const Text('Change password'),
+              ),
+              FilledButton.icon(
+                onPressed: _savingName ? null : _saveName,
+                icon: const Icon(Icons.save_outlined),
+                label: Text(_savingName ? 'Saving…' : 'Save name'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ChangePasswordDialog extends StatefulWidget {
+  const _ChangePasswordDialog({required this.onChangePassword});
+
+  final Future<bool> Function(String oldPassword, String newPassword)
+  onChangePassword;
+
+  @override
+  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  final _key = GlobalKey<FormState>();
+  final _oldPassword = TextEditingController();
+  final _newPassword = TextEditingController();
+  final _confirmPassword = TextEditingController();
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _oldPassword.dispose();
+    _newPassword.dispose();
+    _confirmPassword.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_key.currentState!.validate()) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final changed = await widget.onChangePassword(
+        _oldPassword.text,
+        _newPassword.text,
+      );
+      if (!mounted) return;
+      if (changed) {
+        Navigator.pop(context, true);
+      } else {
+        setState(() {
+          _saving = false;
+          _error = 'The current password is incorrect.';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = 'Could not update the password. Try again.';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    constraints: responsiveDialogConstraints(context),
+    insetPadding: responsiveDialogInsetPadding(context),
+    title: const Text('Change password'),
+    content: SizedBox(
+      width: responsiveDialogContentWidth(context),
+      child: Form(
+        key: _key,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_error != null) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextFormField(
+                controller: _oldPassword,
+                obscureText: true,
+                maxLength: 32,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                decoration: const InputDecoration(
+                  labelText: 'Current password',
+                  counterText: '',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Enter your current password.'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _newPassword,
+                obscureText: true,
+                maxLength: 32,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                decoration: const InputDecoration(
+                  labelText: 'New password',
+                  counterText: '',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Enter a new password.'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _confirmPassword,
+                obscureText: true,
+                maxLength: 32,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                decoration: const InputDecoration(
+                  labelText: 'Confirm new password',
+                  counterText: '',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) => value != _newPassword.text
+                    ? 'Passwords do not match.'
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.pop(context, false),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: _saving ? null : _submit,
+        child: Text(_saving ? 'Updating…' : 'Update password'),
+      ),
+    ],
   );
 }
 

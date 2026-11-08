@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
 import '../phone_number.dart';
+import '../utils/address_options.dart';
 import 'crm_widgets.dart';
 import 'record_browser.dart';
 import 'responsive_dialog.dart';
@@ -338,6 +339,8 @@ Future<void> editContact(
           'Other',
         ],
         'email_label': ['Primary', 'Work', 'Personal', 'Home', 'Other'],
+        'country': crmAddressCountries,
+        'state': [''],
         'preferred_contact_method': [
           '',
           ...store.profileTags
@@ -349,12 +352,19 @@ Future<void> editContact(
             .map((tag) => tag.value)
             .toList(),
       },
-      dependentDropdownOptions: {'military_rank': _militaryRanksByBranch},
-      dropdownDependencies: const {'military_rank': 'military_branch'},
+      dependentDropdownOptions: {
+        'military_rank': _militaryRanksByBranch,
+        'state': crmAddressRegionsByCountry,
+      },
+      dropdownDependencies: const {
+        'military_rank': 'military_branch',
+        'state': 'country',
+      },
       fields: const {
         'photo_blob': 'Profile photo',
         'prefix': 'Prefix',
         'first_name': 'First name *',
+        'middle_name': 'Middle name / initial',
         'last_name': 'Last name *',
         'suffix': 'Suffix',
         'military_branch': 'Military branch',
@@ -366,9 +376,12 @@ Future<void> editContact(
         'additional_phones_json': 'Additional phone numbers',
         'email': 'Primary email',
         'additional_emails_json': 'Additional email addresses',
-        'address': 'Address / Location',
-        'latitude': 'Latitude',
-        'longitude': 'Longitude',
+        'address_line1': 'Address',
+        'address_line2': 'Address line 2 (optional)',
+        'city': 'City',
+        'country': 'Country',
+        'state': 'State / Province',
+        'postal_code': 'ZIP / Postal code',
         'spouse_name': 'Spouse name (optional)',
         'children_json': 'Children',
         'custom_tags_json': 'Profile tags',
@@ -719,7 +732,7 @@ class _ContactDetailState extends State<ContactDetail> {
           InteractionLog(
             contactId: id,
             organizationId: c.organizationId,
-            date: DateTime.now(),
+            date: result['interactionDate'] as DateTime? ?? DateTime.now(),
             type: followUpOnly ? 'Other' : result['type'] as String,
             summary: followUpOnly
                 ? 'Follow-up scheduled'
@@ -1084,8 +1097,8 @@ class _ContactDetailState extends State<ContactDetail> {
                   ),
           ),
           InfoCard(
-            'Address / Location',
-            c.address,
+            'Address',
+            c.addressDetails,
             icon: Icons.location_on_outlined,
           ),
           if (c.spouseName.isNotEmpty)

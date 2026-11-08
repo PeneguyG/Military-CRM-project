@@ -25,10 +25,13 @@ class HomePage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Welcome back User!',
-                style: textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
+              AnimatedBuilder(
+                animation: store,
+                builder: (context, _) => Text(
+                  'Welcome back ${store.userName}',
+                  style: textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               const SizedBox(height: 24),

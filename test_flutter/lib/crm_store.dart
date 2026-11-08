@@ -28,6 +28,7 @@ class CrmStore extends ChangeNotifier {
   final List<OrganizationNote> _organizationNotes;
   final List<ProfileTagDefinition> _profileTags;
   UserLocation userLocation = UserLocation.demo;
+  String userName = 'User';
   CrmDatabase? _database;
   Future<void> _pending = Future.value();
   bool _disposed = false;
@@ -51,6 +52,8 @@ class CrmStore extends ChangeNotifier {
               jsonDecode(settings['user_location'] as String),
             ),
           );
+    final savedUserName = settings['user_name']?.toString().trim() ?? '';
+    userName = savedUserName.isEmpty ? 'User' : savedUserName;
 
     final organizations = snapshot['organizations']!
         .map(Organization.fromMap)
@@ -124,6 +127,21 @@ class CrmStore extends ChangeNotifier {
       );
     } else {
       userLocation = location;
+      notifyListeners();
+    }
+  }
+
+  Future<void> saveUserName(String name) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty || normalized.length > 50) {
+      throw ArgumentError('Enter a name with 1 to 50 characters.');
+    }
+    if (_database != null) {
+      await _persist(
+        () => _database!.saveMapSettings({'user_name': normalized}),
+      );
+    } else {
+      userName = normalized;
       notifyListeners();
     }
   }

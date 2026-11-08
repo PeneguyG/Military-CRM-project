@@ -20,7 +20,13 @@ String capitalizeInitial(String value) {
 }
 
 const _namePattern = r"^[\p{L}]+(?:[ '\-][\p{L}]+)*$";
-const _personNameKeys = {'first_name', 'last_name', 'spouse_name', 'title'};
+const _personNameKeys = {
+  'first_name',
+  'middle_name',
+  'last_name',
+  'spouse_name',
+  'title',
+};
 const _contactPhoneLabels = [
   'Mobile',
   'Home',
@@ -33,9 +39,12 @@ const _contactPhoneLabels = [
 ];
 const _contactEmailLabels = ['Primary', 'Work', 'Personal', 'Home', 'Other'];
 
-int? _maxCharactersFor(String field, {bool organizationForm = false}) {
-  if (field == 'address' && !organizationForm) return 60;
+int? _maxCharactersFor(String field) {
+  if ({'address', 'address_line1', 'address_line2', 'city'}.contains(field)) {
+    return 50;
+  }
   return switch (field) {
+    'middle_name' => 32,
     'first_name' ||
     'last_name' ||
     'title' ||
@@ -47,24 +56,30 @@ int? _maxCharactersFor(String field, {bool organizationForm = false}) {
   };
 }
 
-List<TextInputFormatter> _formattersFor(
-  String field, {
-  bool organizationForm = false,
-}) {
+List<TextInputFormatter> _formattersFor(String field) {
   if (field == 'phone') return const [UsPhoneNumberFormatter()];
   final formatters = <TextInputFormatter>[];
   if (_personNameKeys.contains(field)) {
     formatters.add(
-      FilteringTextInputFormatter.allow(RegExp(r"[\p{L} '\-]", unicode: true)),
+      FilteringTextInputFormatter.allow(
+        RegExp(
+          field == 'middle_name' ? r"[\p{L} .'\-]" : r"[\p{L} '\-]",
+          unicode: true,
+        ),
+      ),
     );
   }
-  final limit = _maxCharactersFor(field, organizationForm: organizationForm);
+  final limit = _maxCharactersFor(field);
   if (limit != null) formatters.add(LengthLimitingTextInputFormatter(limit));
   return formatters;
 }
 
 bool _isPersonName(String value) =>
     RegExp(_namePattern, unicode: true).hasMatch(value);
+
+bool _isMiddleName(String value) =>
+    _isPersonName(value) ||
+    RegExp(r"^[\p{L}]\.$", unicode: true).hasMatch(value);
 
 String? _validatePhone(String? value) {
   final text = value?.trim() ?? '';
@@ -848,7 +863,9 @@ class _RecordFormState extends State<RecordForm> {
     for (final field in widget.dropdownDependencies.keys) {
       final options = _dropdownOptionsFor(field);
       final currentValue = _dropdownValues[field] ?? '';
-      if (options != null && !options.contains(currentValue)) {
+      if (field != 'state' &&
+          options != null &&
+          !options.contains(currentValue)) {
         _dropdownValues[field] = '';
       }
     }
@@ -997,7 +1014,8 @@ class _RecordFormState extends State<RecordForm> {
       final isDependentDropdown = widget.dropdownDependencies.containsKey(
         entry.key,
       );
-      if (!isDependentDropdown && !availableOptions.contains(selectedValue)) {
+      if (selectedValue.isNotEmpty &&
+          !availableOptions.contains(selectedValue)) {
         availableOptions.add(selectedValue);
       }
 
@@ -1041,27 +1059,26 @@ class _RecordFormState extends State<RecordForm> {
         label: entry.value,
       );
     }
-    final maxCharacters = _maxCharactersFor(
-      entry.key,
-      organizationForm: widget.organizationForm,
-    );
-    final contactAddress = entry.key == 'address' && !widget.organizationForm;
+    final maxCharacters = _maxCharactersFor(entry.key);
     return TextFormField(
       controller: _controllers[entry.key],
       decoration: InputDecoration(
         labelText: entry.value,
         border: const OutlineInputBorder(),
       ),
-      maxLength: contactAddress ? 60 : null,
       maxLengthEnforcement: MaxLengthEnforcement.enforced,
       textCapitalization: switch (entry.key) {
         'email' || 'phone' => TextCapitalization.none,
         'first_name' ||
+        'middle_name' ||
         'last_name' ||
         'spouse_name' ||
         'title' ||
         'name' ||
-        'industry' => TextCapitalization.words,
+        'industry' ||
+        'city' ||
+        'state' ||
+        'country' => TextCapitalization.words,
         _ => TextCapitalization.sentences,
       },
       minLines: entry.key == 'notes' || entry.key == 'talking_points' ? 3 : 1,
@@ -1076,10 +1093,7 @@ class _RecordFormState extends State<RecordForm> {
           : entry.key == 'email'
           ? TextInputType.emailAddress
           : TextInputType.text,
-      inputFormatters: _formattersFor(
-        entry.key,
-        organizationForm: widget.organizationForm,
-      ),
+      inputFormatters: _formattersFor(entry.key),
       validator: (value) {
         final text = value?.trim() ?? '';
         if (maxCharacters != null && text.length > maxCharacters) {
@@ -1100,8 +1114,12 @@ class _RecordFormState extends State<RecordForm> {
         }
         if (_personNameKeys.contains(entry.key) &&
             text.isNotEmpty &&
-            !_isPersonName(text)) {
-          return 'Use letters, spaces, hyphens, or apostrophes only.';
+            !(entry.key == 'middle_name'
+                ? _isMiddleName(text)
+                : _isPersonName(text))) {
+          return entry.key == 'middle_name'
+              ? 'Enter a middle name or a single-letter initial.'
+              : 'Use letters, spaces, hyphens, or apostrophes only.';
         }
         if (entry.key == 'email' &&
             ((widget.organizationForm && text.isEmpty) || text.isNotEmpty) &&
@@ -1916,11 +1934,13 @@ class _InteractionFormState extends State<InteractionForm> {
   String? _error;
   final _key = GlobalKey<FormState>();
   final _summary = TextEditingController();
+  final _interactionDateText = TextEditingController();
   final _followUpReason = TextEditingController();
   final _followUpDateText = TextEditingController();
   final _followUpTimeText = TextEditingController();
   final List<InteractionAttachment> _attachments = [];
   late String _type = widget.initialType;
+  DateTime _interactionDate = DateUtils.dateOnly(DateTime.now());
   DateTime? _followUp;
   TimeOfDay? _followUpTime;
 
@@ -1936,10 +1956,17 @@ class _InteractionFormState extends State<InteractionForm> {
   }
 
   bool _initializedFollowUpTimeLabel = false;
+  bool _initializedInteractionDateLabel = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!widget.followUpOnly && !_initializedInteractionDateLabel) {
+      _interactionDateText.text = MaterialLocalizations.of(
+        context,
+      ).formatMediumDate(_interactionDate);
+      _initializedInteractionDateLabel = true;
+    }
     if (widget.followUpOnly && !_initializedFollowUpTimeLabel) {
       _followUpTimeText.text = _followUpTime!.format(context);
       _initializedFollowUpTimeLabel = true;
@@ -2006,6 +2033,19 @@ class _InteractionFormState extends State<InteractionForm> {
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
+  DateTime get _interactionDateTime {
+    final now = DateTime.now();
+    return DateTime(
+      _interactionDate.year,
+      _interactionDate.month,
+      _interactionDate.day,
+      now.hour,
+      now.minute,
+      now.second,
+      now.millisecond,
+    );
+  }
+
   bool _isSameDay(DateTime first, DateTime second) =>
       first.year == second.year &&
       first.month == second.month &&
@@ -2017,10 +2057,39 @@ class _InteractionFormState extends State<InteractionForm> {
   @override
   void dispose() {
     _summary.dispose();
+    _interactionDateText.dispose();
     _followUpReason.dispose();
     _followUpDateText.dispose();
     _followUpTimeText.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectInteractionDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final initialDate = _interactionDate.isAfter(today)
+        ? today
+        : _interactionDate;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1900, 1, 1),
+      lastDate: today,
+    );
+    if (!mounted || picked == null) return;
+
+    final selectedDate = DateUtils.dateOnly(picked);
+    if (selectedDate.isAfter(DateUtils.dateOnly(DateTime.now()))) {
+      setState(() => _error = 'Interaction date cannot be in the future.');
+      return;
+    }
+    _markUnsavedChanges();
+    setState(() {
+      _interactionDate = selectedDate;
+      _interactionDateText.text = MaterialLocalizations.of(
+        context,
+      ).formatMediumDate(selectedDate);
+      _error = null;
+    });
   }
 
   Future<void> _selectFollowUpDate() async {
@@ -2242,6 +2311,23 @@ class _InteractionFormState extends State<InteractionForm> {
                           ),
                           const SizedBox(height: 16),
                           if (!widget.followUpOnly) ...[
+                            TextFormField(
+                              controller: _interactionDateText,
+                              readOnly: true,
+                              onTap: _selectInteractionDate,
+                              decoration: const InputDecoration(
+                                labelText: 'Interaction date',
+                                suffixIcon: Icon(Icons.calendar_month),
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (_) =>
+                                  _interactionDate.isAfter(
+                                    DateUtils.dateOnly(DateTime.now()),
+                                  )
+                                  ? 'Interaction date cannot be in the future.'
+                                  : null,
+                            ),
+                            const SizedBox(height: 12),
                             AnchoredDropdown<String>(
                               label: 'Interaction type',
                               initialSelection: _type,
@@ -2480,6 +2566,8 @@ class _InteractionFormState extends State<InteractionForm> {
                                 final result = <String, Object?>{
                                   'type': _type,
                                   'summary': capitalizeInitial(_summary.text),
+                                  if (!widget.followUpOnly)
+                                    'interactionDate': _interactionDateTime,
                                   'followUp': _showFollowUp ? _followUp : null,
                                   'followUpTime':
                                       !_showFollowUp || _followUpTime == null

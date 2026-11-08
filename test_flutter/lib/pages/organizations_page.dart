@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../crm_store.dart';
 import '../models/crm_models.dart';
 import '../phone_number.dart';
+import '../utils/address_options.dart';
 import 'crm_widgets.dart';
 import 'record_browser.dart';
 import 'responsive_dialog.dart';
@@ -24,13 +25,22 @@ Future<void> editOrganization(
       confirmDiscardOnExit: organization == null,
       onSave: (values) => store.saveOrganization(Organization.fromMap(values)),
       organizationForm: true,
+      dropdownFields: {
+        'country': crmAddressCountries,
+        'state': [''],
+      },
+      dependentDropdownOptions: {'state': crmAddressRegionsByCountry},
+      dropdownDependencies: const {'state': 'country'},
       fields: const {
         'logo_blob': 'Organization logo',
         'name': 'Organization name *',
         'industry': 'Industry *',
-        'address': 'Address / Location',
-        'latitude': 'Latitude',
-        'longitude': 'Longitude',
+        'address_line1': 'Address',
+        'address_line2': 'Address line 2 (optional)',
+        'city': 'City',
+        'country': 'Country',
+        'state': 'State / Province',
+        'postal_code': 'ZIP / Postal code',
         'phone': 'Phone',
         'email': 'Email address *',
         'notes': 'Notes (optional)',
@@ -330,8 +340,8 @@ class OrganizationDetail extends StatelessWidget {
               ),
             ),
           InfoCard(
-            'Address / Location',
-            o.address,
+            'Address',
+            o.addressDetails,
             icon: Icons.location_on_outlined,
           ),
           InfoCard('Email', o.email, icon: Icons.email_outlined),

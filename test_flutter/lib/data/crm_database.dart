@@ -12,7 +12,7 @@ import 'dart:isolate';
 import 'package:sqlite3/sqlite3.dart';
 import '../models/crm_models.dart';
 
-const crmSchemaVersion = 19;
+const crmSchemaVersion = 20;
 
 typedef DatabaseSnapshot = Map<String, List<Map<String, Object?>>>;
 
@@ -136,7 +136,7 @@ Future<DatabaseSnapshot> _execute(
       switch (operation) {
         case 'mapSettings':
           for (final entry in data.entries) {
-            if (entry.key != 'user_location')
+            if (!{'user_location', 'user_name'}.contains(entry.key))
               throw ArgumentError('Unknown map setting');
             db.execute(
               'INSERT INTO map_settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
@@ -538,6 +538,13 @@ void _migrate(Database db) {
           CHECK(is_follow_up_only IN (0,1));
         INSERT INTO crm_app_migrations(version) VALUES(19);
       ''');
+      version = 19;
+    }
+    if (version < 20) {
+      db.execute('''
+        ALTER TABLE contacts ADD COLUMN middle_name TEXT NOT NULL DEFAULT '';
+        INSERT INTO crm_app_migrations(version) VALUES(20);
+      ''');
     }
     db.execute('COMMIT;');
   } catch (_) {
@@ -546,19 +553,22 @@ void _migrate(Database db) {
   }
 }
 
-String _address(Map<String, Object?> row) =>
-    row['address'] as String? ??
-    [
-          'address_line1',
-          'address_line2',
-          'city',
-          'state',
-          'postal_code',
-          'country',
-        ]
-        .map((key) => row[key] as String? ?? '')
-        .where((v) => v.isNotEmpty)
-        .join(', ');
+String _address(Map<String, Object?> row) {
+  final structured = _joinAddressValues([
+    row['address_line1'],
+    row['address_line2'],
+    row['city'],
+    row['state'],
+    row['postal_code'],
+    row['country'],
+  ]);
+  return structured.isEmpty ? row['address']?.toString() ?? '' : structured;
+}
+
+String _joinAddressValues(Iterable<Object?> values) => values
+    .map((value) => value?.toString().trim() ?? '')
+    .where((value) => value.isNotEmpty)
+    .join(', ');
 
 Map<String, Object?> _organization(Map<String, Object?> r) => {
   ...r,
@@ -659,6 +669,12 @@ void _saveOrganization(Database db, Map<String, Object?> m) {
       'name',
       'industry',
       'address',
+      'address_line1',
+      'address_line2',
+      'city',
+      'state',
+      'postal_code',
+      'country',
       'phone',
       'email',
       'notes',
@@ -703,6 +719,7 @@ void _saveContact(Database db, Map<String, Object?> m) {
     'organization_id': 'organization_id',
     'prefix': 'prefix',
     'first_name': 'first_name',
+    'middle_name': 'middle_name',
     'last_name': 'last_name',
     'suffix': 'suffix',
     'military_branch': 'military_branch',
@@ -718,6 +735,12 @@ void _saveContact(Database db, Map<String, Object?> m) {
     'email_label': 'email_label',
     'additional_emails_json': 'additional_emails_json',
     'address': 'address',
+    'address_line1': 'address_line1',
+    'address_line2': 'address_line2',
+    'city': 'city',
+    'state': 'state',
+    'postal_code': 'postal_code',
+    'country': 'country',
     'spouse_name': 'spouse_name',
     'children_info': 'children_details',
     'children_json': 'children_json',

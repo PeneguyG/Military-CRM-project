@@ -20,6 +20,63 @@ DateTime _parseFollowUpDate(String value) {
   return DateTime.parse(value);
 }
 
+String _joinAddressParts(Iterable<Object?> parts) => parts
+    .map((part) => part?.toString().trim() ?? '')
+    .where((part) => part.isNotEmpty)
+    .join(', ');
+
+class _AddressComponents {
+  const _AddressComponents({
+    required this.line1,
+    required this.line2,
+    required this.city,
+    required this.state,
+    required this.postalCode,
+    required this.country,
+    required this.formatted,
+  });
+
+  final String line1, line2, city, state, postalCode, country, formatted;
+}
+
+_AddressComponents _addressComponentsFromMap(Map<String, Object?> map) {
+  final legacyAddress = map['address']?.toString().trim() ?? '';
+  final rawLine1 = map['address_line1']?.toString().trim() ?? '';
+  final line2 = map['address_line2']?.toString().trim() ?? '';
+  final city = map['city']?.toString().trim() ?? '';
+  final state = map['state']?.toString().trim() ?? '';
+  final postalCode = map['postal_code']?.toString().trim() ?? '';
+  final country = map['country']?.toString().trim() ?? '';
+  final hasStructuredAddress = [
+    rawLine1,
+    line2,
+    city,
+    state,
+    postalCode,
+    country,
+  ].any((part) => part.isNotEmpty);
+  final line1 = rawLine1.isNotEmpty || hasStructuredAddress
+      ? rawLine1
+      : legacyAddress;
+  final formatted = _joinAddressParts([
+    line1,
+    line2,
+    city,
+    state,
+    postalCode,
+    country,
+  ]);
+  return _AddressComponents(
+    line1: line1,
+    line2: line2,
+    city: city,
+    state: state,
+    postalCode: postalCode,
+    country: country,
+    formatted: formatted.isEmpty ? legacyAddress : formatted,
+  );
+}
+
 class Organization {
   const Organization({
     this.id,
@@ -28,19 +85,61 @@ class Organization {
     this.coordinateSource = '',
     required this.name,
     this.industry = '',
-    this.address = '',
+    String address = '',
+    this.addressLine1 = '',
+    this.addressLine2 = '',
+    this.city = '',
+    this.state = '',
+    this.postalCode = '',
+    this.country = '',
     this.phone = '',
     this.email = '',
     this.notes = '',
     this.logoBytes,
     this.isArchived = false,
-  });
+  }) : _legacyAddress = address;
   final double? latitude, longitude;
   final String coordinateSource;
   final int? id;
-  final String name, industry, address, phone, email, notes;
+  final String name, industry, phone, email, notes;
+  final String addressLine1, addressLine2, city, state, postalCode, country;
+  final String _legacyAddress;
   final Uint8List? logoBytes;
   final bool isArchived;
+
+  String get _effectiveAddressLine1 =>
+      addressLine1.isNotEmpty ||
+          addressLine2.isNotEmpty ||
+          city.isNotEmpty ||
+          state.isNotEmpty ||
+          postalCode.isNotEmpty ||
+          country.isNotEmpty
+      ? addressLine1
+      : _legacyAddress;
+
+  String get address {
+    final formatted = _joinAddressParts([
+      _effectiveAddressLine1,
+      addressLine2,
+      city,
+      state,
+      postalCode,
+      country,
+    ]);
+    return formatted.isEmpty ? _legacyAddress : formatted;
+  }
+
+  String get addressDetails {
+    final street = _joinAddressParts([_effectiveAddressLine1, addressLine2]);
+    final details = [
+      if (street.isNotEmpty) 'Address: $street',
+      if (city.isNotEmpty) 'City: $city',
+      if (state.isNotEmpty) 'State / Province: $state',
+      if (country.isNotEmpty) 'Country: $country',
+      if (postalCode.isNotEmpty) 'ZIP / Postal code: $postalCode',
+    ].join('\n');
+    return details.isEmpty ? _legacyAddress : details;
+  }
 
   String get searchText =>
       '$name $industry $address ${RichTextContent.plainText(notes)}';
@@ -55,26 +154,41 @@ class Organization {
     'name': name,
     'industry': industry,
     'address': address,
+    'address_line1': _effectiveAddressLine1,
+    'address_line2': addressLine2,
+    'city': city,
+    'state': state,
+    'postal_code': postalCode,
+    'country': country,
     'phone': phone,
     'email': email,
     'notes': notes,
     'logo_blob': logoBytes,
     'is_archived': isArchived ? 1 : 0,
   };
-  factory Organization.fromMap(Map<String, Object?> m) => Organization(
-    id: m['id'] as int?,
-    latitude: _coordinate(m['latitude']),
-    longitude: _coordinate(m['longitude']),
-    coordinateSource: m['coordinate_source'] as String? ?? '',
-    name: m['name'] as String,
-    industry: m['industry'] as String? ?? '',
-    address: m['address'] as String? ?? '',
-    phone: m['phone'] as String? ?? '',
-    email: m['email'] as String? ?? '',
-    notes: m['notes'] as String? ?? '',
-    logoBytes: _readPhotoBytes(m['logo_blob']),
-    isArchived: m['is_archived'] == 1,
-  );
+  factory Organization.fromMap(Map<String, Object?> m) {
+    final address = _addressComponentsFromMap(m);
+    return Organization(
+      id: m['id'] as int?,
+      latitude: _coordinate(m['latitude']),
+      longitude: _coordinate(m['longitude']),
+      coordinateSource: m['coordinate_source'] as String? ?? '',
+      name: m['name'] as String,
+      industry: m['industry'] as String? ?? '',
+      address: address.formatted,
+      addressLine1: address.line1,
+      addressLine2: address.line2,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+      country: address.country,
+      phone: m['phone'] as String? ?? '',
+      email: m['email'] as String? ?? '',
+      notes: m['notes'] as String? ?? '',
+      logoBytes: _readPhotoBytes(m['logo_blob']),
+      isArchived: m['is_archived'] == 1,
+    );
+  }
   Organization copyWith({
     Object? id = _unset,
     Object? latitude = _unset,
@@ -83,31 +197,53 @@ class Organization {
     String? name,
     String? industry,
     String? address,
+    String? addressLine1,
+    String? addressLine2,
+    String? city,
+    String? state,
+    String? postalCode,
+    String? country,
     String? phone,
     String? email,
     String? notes,
     Object? logoBytes = _unset,
     bool? isArchived,
-  }) => Organization(
-    id: identical(id, _unset) ? this.id : id as int?,
-    latitude: identical(latitude, _unset)
-        ? this.latitude
-        : _coordinate(latitude),
-    longitude: identical(longitude, _unset)
-        ? this.longitude
-        : _coordinate(longitude),
-    coordinateSource: coordinateSource ?? this.coordinateSource,
-    name: name ?? this.name,
-    industry: industry ?? this.industry,
-    address: address ?? this.address,
-    phone: phone ?? this.phone,
-    email: email ?? this.email,
-    notes: notes ?? this.notes,
-    logoBytes: identical(logoBytes, _unset)
-        ? this.logoBytes
-        : logoBytes as Uint8List?,
-    isArchived: isArchived ?? this.isArchived,
-  );
+  }) {
+    final addressFieldsChanged =
+        addressLine1 != null ||
+        addressLine2 != null ||
+        city != null ||
+        state != null ||
+        postalCode != null ||
+        country != null;
+    return Organization(
+      id: identical(id, _unset) ? this.id : id as int?,
+      latitude: identical(latitude, _unset)
+          ? this.latitude
+          : _coordinate(latitude),
+      longitude: identical(longitude, _unset)
+          ? this.longitude
+          : _coordinate(longitude),
+      coordinateSource: coordinateSource ?? this.coordinateSource,
+      name: name ?? this.name,
+      industry: industry ?? this.industry,
+      address: address ?? (addressFieldsChanged ? '' : _legacyAddress),
+      addressLine1:
+          addressLine1 ?? (address == null ? this.addressLine1 : address),
+      addressLine2: addressLine2 ?? (address == null ? this.addressLine2 : ''),
+      city: city ?? (address == null ? this.city : ''),
+      state: state ?? (address == null ? this.state : ''),
+      postalCode: postalCode ?? (address == null ? this.postalCode : ''),
+      country: country ?? (address == null ? this.country : ''),
+      phone: phone ?? this.phone,
+      email: email ?? this.email,
+      notes: notes ?? this.notes,
+      logoBytes: identical(logoBytes, _unset)
+          ? this.logoBytes
+          : logoBytes as Uint8List?,
+      isArchived: isArchived ?? this.isArchived,
+    );
+  }
 }
 
 class ChildRecord {
@@ -285,6 +421,7 @@ class Contact {
     this.organizationId,
     this.prefix = '',
     required this.firstName,
+    this.middleName = '',
     required this.lastName,
     this.suffix = '',
     this.militaryBranch = '',
@@ -299,7 +436,13 @@ class Contact {
     this.email = '',
     this.emailLabel = 'Primary',
     this.additionalEmails = const [],
-    this.address = '',
+    String address = '',
+    this.addressLine1 = '',
+    this.addressLine2 = '',
+    this.city = '',
+    this.state = '',
+    this.postalCode = '',
+    this.country = '',
     this.spouseName = '',
     this.childrenInfo = '',
     this.children = const [],
@@ -309,7 +452,8 @@ class Contact {
     this.talkingPoints = '',
     ContactStatus status = ContactStatus.active,
     bool isArchived = false,
-  }) : status = status == ContactStatus.archived || isArchived
+  }) : _legacyAddress = address,
+       status = status == ContactStatus.archived || isArchived
            ? ContactStatus.archived
            : status,
        isArchived = status == ContactStatus.archived || isArchived;
@@ -318,6 +462,7 @@ class Contact {
   final int? id, organizationId;
   final String prefix,
       firstName,
+      middleName,
       lastName,
       suffix,
       militaryBranch,
@@ -329,11 +474,12 @@ class Contact {
       phoneLabel,
       email,
       emailLabel,
-      address,
       spouseName,
       childrenInfo,
       notes,
       talkingPoints;
+  final String addressLine1, addressLine2, city, state, postalCode, country;
+  final String _legacyAddress;
   final String? photoPath;
   final Uint8List? photoBytes;
   final List<ContactPhoneNumber> additionalPhones;
@@ -342,6 +488,41 @@ class Contact {
   final List<int> customTagIds;
   final ContactStatus status;
   final bool isArchived;
+
+  String get _effectiveAddressLine1 =>
+      addressLine1.isNotEmpty ||
+          addressLine2.isNotEmpty ||
+          city.isNotEmpty ||
+          state.isNotEmpty ||
+          postalCode.isNotEmpty ||
+          country.isNotEmpty
+      ? addressLine1
+      : _legacyAddress;
+
+  String get address {
+    final formatted = _joinAddressParts([
+      _effectiveAddressLine1,
+      addressLine2,
+      city,
+      state,
+      postalCode,
+      country,
+    ]);
+    return formatted.isEmpty ? _legacyAddress : formatted;
+  }
+
+  String get addressDetails {
+    final street = _joinAddressParts([_effectiveAddressLine1, addressLine2]);
+    final details = [
+      if (street.isNotEmpty) 'Address: $street',
+      if (city.isNotEmpty) 'City: $city',
+      if (state.isNotEmpty) 'State / Province: $state',
+      if (country.isNotEmpty) 'Country: $country',
+      if (postalCode.isNotEmpty) 'ZIP / Postal code: $postalCode',
+    ].join('\n');
+    return details.isEmpty ? _legacyAddress : details;
+  }
+
   List<ContactPhoneNumber> get phoneNumbers => [
     if (phone.trim().isNotEmpty)
       ContactPhoneNumber(
@@ -362,6 +543,7 @@ class Contact {
       [
         if (prefix.trim().isNotEmpty) prefix.trim(),
         firstName.trim(),
+        if (middleName.trim().isNotEmpty) middleName.trim(),
         lastName.trim(),
       ].join(' ') +
       (suffix.trim().isEmpty ? '' : ', ${suffix.trim()}');
@@ -377,8 +559,9 @@ class Contact {
     RichTextContent.plainText(notes),
     RichTextContent.plainText(talkingPoints),
   ].join(' ');
-  String get nameSoundex =>
-      SoundexHelper.encodePhrase('$firstName $lastName $spouseName');
+  String get nameSoundex => SoundexHelper.encodePhrase(
+    '$firstName $middleName $lastName $spouseName',
+  );
   String get fullSoundexIndex => SoundexHelper.encodePhrase(searchText);
 
   Map<String, Object?> toMap() => {
@@ -391,6 +574,7 @@ class Contact {
     'organization_id': organizationId,
     'prefix': prefix,
     'first_name': firstName,
+    'middle_name': middleName,
     'last_name': lastName,
     'suffix': suffix,
     'military_branch': militaryBranch,
@@ -410,6 +594,12 @@ class Contact {
       additionalEmails.map((email) => email.toMap()).toList(),
     ),
     'address': address,
+    'address_line1': _effectiveAddressLine1,
+    'address_line2': addressLine2,
+    'city': city,
+    'state': state,
+    'postal_code': postalCode,
+    'country': country,
     'spouse_name': spouseName,
     'children_info': childrenInfo,
     'children_json': jsonEncode(
@@ -424,6 +614,7 @@ class Contact {
     'is_archived': isArchived ? 1 : 0,
   };
   factory Contact.fromMap(Map<String, Object?> m) {
+    final address = _addressComponentsFromMap(m);
     final storedStatus = m['status'] as String? ?? 'active';
     // Older databases used Inactive to mean archived. The explicit
     // contact_status field distinguishes the new inactive state.
@@ -442,6 +633,7 @@ class Contact {
       organizationId: m['organization_id'] as int?,
       prefix: m['prefix'] as String? ?? '',
       firstName: m['first_name'] as String,
+      middleName: m['middle_name'] as String? ?? '',
       lastName: m['last_name'] as String,
       suffix: m['suffix'] as String? ?? '',
       militaryBranch: m['military_branch'] as String? ?? '',
@@ -462,7 +654,13 @@ class Contact {
       additionalEmails: ContactEmailAddress.decodeMany(
         m['additional_emails_json'],
       ),
-      address: m['address'] as String? ?? '',
+      address: address.formatted,
+      addressLine1: address.line1,
+      addressLine2: address.line2,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+      country: address.country,
       spouseName: m['spouse_name'] as String? ?? '',
       childrenInfo: m['children_info'] as String? ?? '',
       children: ChildRecord.decodeMany(m['children_json']),
@@ -486,6 +684,7 @@ class Contact {
     Object? organizationId = _unset,
     String? prefix,
     String? firstName,
+    String? middleName,
     String? lastName,
     String? suffix,
     String? militaryBranch,
@@ -501,6 +700,12 @@ class Contact {
     String? emailLabel,
     List<ContactEmailAddress>? additionalEmails,
     String? address,
+    String? addressLine1,
+    String? addressLine2,
+    String? city,
+    String? state,
+    String? postalCode,
+    String? country,
     String? spouseName,
     String? childrenInfo,
     List<ChildRecord>? children,
@@ -525,6 +730,13 @@ class Contact {
     final nextIsArchived =
         isArchived ??
         (status == null ? this.isArchived : status == ContactStatus.archived);
+    final addressFieldsChanged =
+        addressLine1 != null ||
+        addressLine2 != null ||
+        city != null ||
+        state != null ||
+        postalCode != null ||
+        country != null;
 
     return Contact(
       id: identical(id, _unset) ? this.id : id as int?,
@@ -540,6 +752,7 @@ class Contact {
           : organizationId as int?,
       prefix: prefix ?? this.prefix,
       firstName: firstName ?? this.firstName,
+      middleName: middleName ?? this.middleName,
       lastName: lastName ?? this.lastName,
       suffix: suffix ?? this.suffix,
       militaryBranch: militaryBranch ?? this.militaryBranch,
@@ -555,7 +768,14 @@ class Contact {
       email: email ?? this.email,
       emailLabel: emailLabel ?? this.emailLabel,
       additionalEmails: additionalEmails ?? this.additionalEmails,
-      address: address ?? this.address,
+      address: address ?? (addressFieldsChanged ? '' : _legacyAddress),
+      addressLine1:
+          addressLine1 ?? (address == null ? this.addressLine1 : address),
+      addressLine2: addressLine2 ?? (address == null ? this.addressLine2 : ''),
+      city: city ?? (address == null ? this.city : ''),
+      state: state ?? (address == null ? this.state : ''),
+      postalCode: postalCode ?? (address == null ? this.postalCode : ''),
+      country: country ?? (address == null ? this.country : ''),
       spouseName: spouseName ?? this.spouseName,
       childrenInfo: childrenInfo ?? this.childrenInfo,
       children: children ?? this.children,
